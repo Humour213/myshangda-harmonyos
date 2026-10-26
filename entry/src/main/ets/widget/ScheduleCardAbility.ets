@@ -6,10 +6,19 @@ import { ScheduleData, CourseItem } from '../common/ScheduleTypes';
 import { parseSchedule } from '../service/ScheduleParse';
 
 /**
- * 卡片数据。版式是「整卡浅色底 + 一张白卡承载此刻」：
- *   - head / hero* 回答"现在该上什么课"，是主视觉，字号最大、唯一白底；
- *   - slots 是之后还有的课，退为次要信息，只剩圆点 + 课名 + 时间；
- *   - accent / tint / ink 由 state 决定（按状态配色，见 paint()）。
+ * 卡片数据，一套数据供两族卡片渲染：
+ *
+ * 「此刻卡」ScheduleTiny / ScheduleSmall / ScheduleLarge
+ *   整卡浅色底 + 一张白卡，用 hero* 回答"现在或下一节上什么"，
+ *   下面的 slots 只是陪衬（会自动跳过主视觉那一条）。
+ *
+ * 「列表卡」ScheduleListSmall / ScheduleListLarge
+ *   旧版白底 + 彩色块的版式，不显示任何"上课中/下节"的结论，
+ *   只按时间顺序列出「还没上完的课」，上完一节少一条；
+ *   今天的课上完了，整卡切到明天（state = tomorrow）。
+ *
+ * slots 的语义统一是「还没上完的全部课程（含正在上的那一节）」，
+ * 列表卡直接用，此刻卡自己跳过第一条。
  */
 class CardData {
   /** 顶部小字：默认「10月29日 周三」，切到明天预告时改成「今天上完了」 */
@@ -25,14 +34,18 @@ class CardData {
   heroNote: string = '';
   /** 上课进度 0-100；-1 表示不显示进度条 */
   progress: number = -1;
-  /** 主视觉下方的小标题，如「还有 2 节」（已经不含主视觉那一节） */
+  /** 此刻卡底部小字，如「还有 2 节」（已扣掉主视觉那一条） */
   restLabel: string = '';
+  /** 列表卡抬头，如「今天还有 3 节」「明天 · 共 4 节」 */
+  listLabel: string = '';
   /** 大卡右上角统计，如「共 6 节 · 还剩 3 节」 */
   summary: string = '';
   /** 状态色：accent 用于标签/圆点/进度条，tint 为整卡底色，ink 为卡内正文色 */
   accent: string = '#8A94A6';
   tint: string = '#F0F2F6';
   ink: string = '#232A36';
+  /** 下一次该刷新卡片的分钟数（下课那一刻），<=0 表示不用单独定时 */
+  nextMin: number = -1;
   t0: string = ''; n0: string = ''; p0: string = ''; f0: string = '';
   t1: string = ''; n1: string = ''; p1: string = ''; f1: string = '';
   t2: string = ''; n2: string = ''; p2: string = ''; f2: string = '';
@@ -61,26 +74,59 @@ const FG: string[] = ['#1E63B4', '#12806A', '#2B57C6', '#B4531A', '#5A3EBA',
 const TM_FG: string = '#3A568C';
 
 /**
- * 课表桌面卡片的数据提供者（迷你 1×2、小卡 2×2、大卡 2×4 共用）。
+ * 课表桌面卡片的数据提供者（此刻卡 1×2/2×2/2×4 + 列表卡 2×2/2×4 共用）。
  *
- * 主视觉区回答"此刻"，五个状态共用一套规则，只换文案和配色：
- *   - 上课中：heroTag「上课中」+ 课名 + 时段 + 「还剩 N 分钟」+ 进度条
- *   - 课间：  heroTag「下节」  + 课名 + 时段 + 「还有 N 分钟」
- *   - 今天上完：切到明天预告，head 改成「今天上完了」，heroTag「明天」
- *   - 今天没课：切到明天预告，head「今天没课」；明天也没课则 heroTag「没课」
- *   - 还没导入：heroTag「空课表」，提示点开导入
- * 列表只放「主视觉之后」的课，上完一节就少一条。
+ * slots 从索引 0 开始按时间顺序放「还没上完的课」，所以：
+ *   - 列表卡：直接整列显示，上完一节就少一条；上完了整列换成明天的课；
+ *   - 此刻卡：主视觉已经占用了第 0 条，列表从第 1 条开始渲染。
  */
 export default class ScheduleCardAbility extends FormExtensionAbility {
   onAddForm(want: Want): formBindingData.FormBindingData {
-    return formBindingData.createFormBindingData(this.buildData());
+    const d: CardData = this.buildData();
+    this.armTimer(want, d.nextMin);
+    return formBindingData.createFormBindingData(d);
   }
 
   onUpdateForm(formId: string): void {
     try {
-      const obj: formBindingData.FormBindingData =
-        formBindingData.createFormBindingData(this.buildData());
-      formProvider.updateForm(formId, obj).catch(() => {
+      const d: CardData = this.buildData();
+      const obj: formBindingData.FormBindingData = formBindingData.createFormBindingData(d);
+      formProvider.updateForm(formId, obj).then(() => {
+        this.armNext(formId, d.nextMin);
+      }).catch(() => {
+        // 忽略
+      });
+    } catch (err) {
+      // 忽略
+    }
+  }
+
+  /** 新增卡片时拿不到 formId，只能从 want 里取，取不到就交给 onUpdateForm 兜底 */
+  private armTimer(want: Want, minutes: number): void {
+    try {
+      const p = want.parameters;
+      if (p === undefined) {
+        return;
+      }
+      const id = p['ohos.extra.param.key.form_identity'];
+      if (id !== undefined) {
+        this.armNext(String(id), minutes);
+      }
+    } catch (err) {
+      // 忽略
+    }
+  }
+
+  /**
+   * 在"下课那一刻"单独排一次刷新，让那一节课准点从列表里消失，
+   * 不用等默认的 30 分钟周期。失败（配额/权限）就退回默认周期，不影响显示。
+   */
+  private armNext(formId: string, minutes: number): void {
+    if (minutes <= 0) {
+      return;
+    }
+    try {
+      formProvider.setFormNextRefreshTime(formId, minutes).catch(() => {
         // 忽略
       });
     } catch (err) {
@@ -102,12 +148,14 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     d.heroTag = '没课';
     d.heroName = '今天没有课';
     d.heroNote = '好好休息';
+    d.listLabel = '今天没课';
     try {
       const path: string = this.context.filesDir + '/schedule.json';
       if (!fileIo.accessSync(path)) {
         d.heroTag = '空课表';
         d.heroName = '还没导入课表';
         d.heroNote = '点开导入';
+        d.listLabel = '还没导入课表';
         return d;
       }
       const size: number = fileIo.statSync(path).size;
@@ -120,9 +168,9 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       const today: number = this.todayIndex();
       // 周末不预告"明天"（周六的明天是周日、周日的明天是周一，容易误导）
       if (today < 0) {
-        d.head = `${this.dateText()} ${this.weekdayText()}`;
         d.heroTag = '周末';
         d.heroNote = '好好休息';
+        d.listLabel = '今天没课';
         return d;
       }
       const todayList: CourseItem[] = [];
@@ -133,10 +181,8 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       }
       todayList.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
       if (todayList.length === 0) {
-        // 今天整天没课：直接把明天预告顶上来，总比一句"今天没有课"有用
-        if (this.fillTomorrow(d, s, today, '今天没课')) {
-          return d;
-        }
+        // 今天整天没课：直接把明天顶上来，总比一句"今天没有课"有用
+        this.fillTomorrow(d, s, today, '今天没课');
         return d;
       }
 
@@ -147,6 +193,7 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         const c: CourseItem = todayList[i];
         const end: number = this.endMinutes(c);
         if (end <= now) {
+          // 已经上完的课不进列表 —— 这就是"上完一节少一条"
           continue;
         }
         remaining.push(c);
@@ -155,6 +202,21 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         }
       }
 
+      if (remaining.length === 0) {
+        // 今天的课上完了：整列换成明天的课
+        if (this.fillTomorrow(d, s, today, '今天上完了')) {
+          return d;
+        }
+        d.state = 'done';
+        d.heroTag = '已结束';
+        d.heroName = '今天的课上完了';
+        d.heroNote = `共 ${todayList.length} 节`;
+        d.listLabel = '今天的课上完了';
+        d.summary = `共 ${todayList.length} 节 · 全部上完`;
+        return d;
+      }
+
+      // 主视觉的文案（此刻卡用，列表卡完全不渲染）
       if (current !== null) {
         const start: number = this.startMinutes(current);
         const end: number = this.endMinutes(current);
@@ -164,10 +226,11 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         d.heroTime = this.timeRange(current.start, current.span);
         d.heroPlace = current.place;
         d.heroNote = `还剩 ${this.durText(end - now)}`;
+        d.nextMin = this.clampMin(end - now + 1);
         if (end > start) {
           d.progress = Math.min(100, Math.max(0, Math.round((now - start) * 100 / (end - start))));
         }
-      } else if (remaining.length > 0) {
+      } else {
         const nxt: CourseItem = remaining[0];
         d.state = 'next';
         d.heroTag = '下节';
@@ -175,47 +238,22 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         d.heroTime = this.timeRange(nxt.start, nxt.span);
         d.heroPlace = nxt.place;
         d.heroNote = `还有 ${this.durText(this.startMinutes(nxt) - now)}`;
-      } else {
-        // 今天的课上完了：整张卡切到"明天预告"，而不是把明天的课混进今天的列表
-        if (this.fillTomorrow(d, s, today, '今天上完了')) {
-          return d;
-        }
-        d.state = 'done';
-        d.heroTag = '已结束';
-        d.heroName = '今天的课上完了';
-        d.heroNote = `共 ${todayList.length} 节`;
-        d.summary = `共 ${todayList.length} 节 · 全部上完`;
-        return d;
+        d.nextMin = this.clampMin(this.startMinutes(nxt) - now);
       }
 
-      const total: number = todayList.length;
-      d.summary = `共 ${total} 节 · 还剩 ${remaining.length} 节`;
-      // 课间时"下节"已经占用了主视觉，列表从再下一节开始
-      if (current === null && remaining.length > 0) {
-        remaining.shift();
-      }
-      // 正在上的课已经在主视觉里，列表里去掉，避免重复
-      if (current !== null) {
-        const rest: CourseItem[] = [];
-        for (let j = 0; j < remaining.length; j++) {
-          if (remaining[j] !== current) {
-            rest.push(remaining[j]);
-          }
-        }
-        remaining.length = 0;
-        for (let j = 0; j < rest.length; j++) {
-          remaining.push(rest[j]);
-        }
-      }
+      d.summary = `共 ${todayList.length} 节 · 还剩 ${remaining.length} 节`;
+      d.listLabel = `今天还有 ${remaining.length} 节`;
 
+      // 列表：还没上完的全部课程，含正在上/下一节
       let cnt: number = 0;
       for (let i = 0; i < remaining.length && i < 8; i++) {
         const c: CourseItem = remaining[i];
         this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, FG[i % FG.length]);
         cnt++;
       }
-      if (cnt > 0) {
-        d.restLabel = `还有 ${cnt} 节`;
+      // 此刻卡的主视觉已经占了第一条，底部只报剩下的
+      if (cnt > 1) {
+        d.restLabel = `还有 ${cnt - 1} 节`;
       }
       return d;
     } catch (err) {
@@ -224,8 +262,8 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
   }
 
   /**
-   * 把卡片切到"明天预告"：主视觉换成明天第一节，head 说明今天的情况，
-   * 下面的列表只放明天"其余"的课，不重复第一节。
+   * 把卡片切到明天：主视觉换成明天第一节，head 说明今天的情况，
+   * 列表则整列换成明天的全部课程（列表卡要完整的一天）。
    *
    * @param head 卡片顶部小字，用来交代今天为什么没课了
    * @returns 明天确实有课才返回 true
@@ -250,15 +288,16 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     d.heroTime = this.timeRange(first.start, first.span);
     d.heroPlace = first.place;
     d.heroNote = `共 ${list.length} 节`;
+    d.listLabel = `明天 · 共 ${list.length} 节`;
     d.summary = `明天共 ${list.length} 节`;
     let cnt: number = 0;
-    for (let i = 1; i < list.length && cnt < 8; i++) {
+    for (let i = 0; i < list.length && i < 8; i++) {
       const c: CourseItem = list[i];
       this.setSlot(d, cnt, this.timeRange(c.start, c.span), c.name, c.place, TM_FG);
       cnt++;
     }
-    if (cnt > 0) {
-      d.restLabel = `明天还有 ${cnt} 节`;
+    if (cnt > 1) {
+      d.restLabel = `明天还有 ${cnt - 1} 节`;
     }
     return true;
   }
@@ -286,6 +325,17 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       d.tint = '#F0F2F6';
       d.ink = '#232A36';
     }
+  }
+
+  /** 定时刷新的分钟数：至少 5 分钟（系统下限），最多 12 小时 */
+  private clampMin(m: number): number {
+    if (m < 5) {
+      return 5;
+    }
+    if (m > 720) {
+      return 720;
+    }
+    return m;
   }
 
   /** 把分钟差说成人话：45 分钟 / 2 小时 35 分 / 即将开始 */

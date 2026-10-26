@@ -67,6 +67,14 @@ struct ScheduleSmall {
   }
 
   /** 时间只留开始时刻，2×2 宽度经不起完整时段 */
+  /** 数据里的 slots 含正在上/下一节那一门，此刻卡的主视觉已经展示了它，列表要跳过 */
+  private off(): number {
+    if (this.state === 'now' || this.state === 'next' || this.state === 'tomorrow') {
+      return 1;
+    }
+    return 0;
+  }
+
   private hm(t: string): string {
     if (t.length >= 5) {
       return t.substring(0, 5);
@@ -171,8 +179,8 @@ struct ScheduleSmall {
         ListItem() {
           Column() {
             ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
-              if (this.fn(i).length > 0) {
-                this.row(i)
+              if (i + this.off() < 8 && this.fn(i + this.off()).length > 0) {
+                this.row(i + this.off())
               }
             }, (i: number) => String(i))
           }
