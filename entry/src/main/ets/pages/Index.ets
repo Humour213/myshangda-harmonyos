@@ -38,6 +38,28 @@ const DOCK_ROOTS: string[][] = [
 const HOME_TAB = 2;
 /** 底栏浮起时的下边距（vp） */
 const BAR_MARGIN = 12;
+/**
+ * 鸿蒙原生样式（HdsTabs）的下边距（vp）。
+ *
+ * 这个样式用系统布局，窗口已经替底栏避让过系统导航条，12vp 显得偏高，
+ * 压到 6vp 让底栏更贴底、和系统原生的观感一致，同时仍不会被手势条压住。
+ */
+const BAR_MARGIN_NATIVE = 6;
+/**
+ * 原版 App 样式下，把底栏整体抬离屏幕底边的距离（vp）。
+ *
+ * 这个样式跑在真全屏沉浸里（setWindowLayoutFullScreen(true)），窗口不替底栏避让系统手势条，
+ * 底栏会一直贴到屏幕最下沿、下沿被手势条压住。这里给 Tabs 留一段底部内边距，
+ * 整条底栏（含它自己的背景、图标、文字）一起上移，底栏高度和配色都不动。
+ */
+const CLASSIC_BAR_LIFT = 24;
+/**
+ * 底栏底色（与原版样式的底栏实测颜色一致）。
+ *
+ * 底栏上移后下面会露出一段空隙，如果不填色就是一道白条，看着像被挡住一截；
+ * 填成同一个色值，整条底栏就是「更高的一整块」，接缝消失。
+ */
+const CLASSIC_BAR_BG = '#F4F5F7';
 /** 收起后底栏下移的距离：要大于「底栏高度 + 下边距」，才能完全移出屏幕 */
 const BAR_HIDDEN_MARGIN = -180;
 
@@ -479,7 +501,22 @@ struct Index {
 
   /** 底栏离底部的距离：收起时给一个足够大的负值，让它整体移出屏幕 */
   barBottomMargin(): number {
-    return this.barHidden ? BAR_HIDDEN_MARGIN : BAR_MARGIN;
+    if (this.barHidden) {
+      return BAR_HIDDEN_MARGIN;
+    }
+    // 原版样式这边量出来不生效（底栏是占位式，靠 CLASSIC_BAR_LIFT 抬），保留原值不动
+    return this.navStyle === NAV_STYLE_CLASSIC ? BAR_MARGIN : BAR_MARGIN_NATIVE;
+  }
+
+  /**
+   * 底栏文字颜色。
+   *
+   * 文字和图标必须由**同一个状态**（currentTab）驱动：Tabs 内部的选中态是在切换动画开始时
+   * 就翻转的，而图标靠 onChange 里的 currentTab 才翻，于是会出现「字先变蓝、图标慢一拍」。
+   * 把 selectedColor 与 unselectedColor 都交给这个函数，Tabs 内部选中态就不再影响颜色。
+   */
+  labelColorOf(idx: number, onColor: string, offColor: string): string {
+    return this.currentTab === idx ? onColor : offColor;
   }
 
   /**
@@ -528,6 +565,10 @@ struct Index {
    * 手指往上滑（= 往下看内容）收起，往下滑唤出。
    */
   onWebSwipe(dy: number, dtMs: number): void {
+    // 原版 App 样式的底栏常驻，不参与滑动收起 / 唤出
+    if (this.navStyle === NAV_STYLE_CLASSIC) {
+      return;
+    }
     if (Router.stack.size() > 0) {
       return;
     }
@@ -936,10 +977,22 @@ struct Index {
                     this.webTabFor(tab, idx)
                   }
                   .tabBar(BottomTabBarStyle.of(this.currentTab === idx ? tab.iconOnClassic : tab.iconOffClassic, tab.label)
-                    .labelStyle({ selectedColor: '#2D8CFA', unselectedColor: '#C1C1C1' }))
+                    .labelStyle({
+                      // 两个颜色都跟 currentTab 走，和图标同步翻转（详见 labelColorOf 注释）
+                      selectedColor: this.labelColorOf(idx, '#2D8CFA', '#C1C1C1'),
+                      unselectedColor: this.labelColorOf(idx, '#2D8CFA', '#C1C1C1')
+                    }))
                 }, (tab: TabDef) => `${tab.id}`)
               }
               .layoutWeight(1)
+              // 这个样式是真全屏沉浸（setWindowLayoutFullScreen(true)），窗口不替底栏避让，
+              // 底栏会一直贴到屏幕最下沿、被手势条压住。这里在 Tabs 底部留出安全距离，
+              // 把整条底栏抬起来；底栏自身的高度、图标、配色都不动。
+              // 底色与底栏一致，抬起后露出的那一段和底栏连成一片，看不出接缝。
+              .padding({ bottom: CLASSIC_BAR_LIFT })
+              .backgroundColor(CLASSIC_BAR_BG)
+              // 底栏本身也钉成同一个实色：页面底色变化时不会出现「上段半透、下段实色」的接缝
+              .barBackgroundColor(CLASSIC_BAR_BG)
               .barFloatingStyle({
                 barWidth: { smallBarWidth: '72%', mediumBarWidth: 480, largeBarWidth: 560 },
                 barSideMargin: 16,
@@ -964,7 +1017,10 @@ struct Index {
                 // 选中：实心图标 + 近黑文字；未选中：线框图标 + 中灰文字。
                 // 图标为 96px 位图（原 40px 在 3x 屏上被放大 1.8 倍，必然发虚）。
                 .tabBar(BottomTabBarStyle.of(this.currentTab === idx ? tab.iconOn : tab.iconOff, tab.label)
-                  .labelStyle({ selectedColor: '#1A1A1A', unselectedColor: '#9BA0A8' }))
+                  .labelStyle({
+                    selectedColor: this.labelColorOf(idx, '#1A1A1A', '#9BA0A8'),
+                    unselectedColor: this.labelColorOf(idx, '#1A1A1A', '#9BA0A8')
+                  }))
               }, (tab: TabDef) => `${tab.id}`)
             }
             .barOverlap(true)

@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.13-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.15-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,20 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.15 — 2026-10-27
+
+- **原版 App 样式底栏整体抬高**：该样式跑在真全屏沉浸里，窗口不替底栏避让系统手势条，
+  底栏会一直贴到屏幕最下沿、下沿被手势条压住。现在给 `Tabs` 留 24vp 底部内边距
+  （`CLASSIC_BAR_LIFT`），整条底栏连背景一起上移；底栏自身的高度、图标、配色都不动。
+  抬高后露出的那一段用与底栏相同的底色（`CLASSIC_BAR_BG`）填上，底栏与底部之间不再有白条。
+- **鸿蒙原生样式的底栏压低一点**：该样式由系统布局、窗口已避让过导航条，12vp 偏高，
+  改成 6vp（`BAR_MARGIN_NATIVE`），更贴底但仍不会被手势条压住。
+- **原版样式的底栏不再滑动收起**：这个样式的底栏是常驻的，网页里快速上滑 / 下滑
+  不再收起或唤出它（原生样式仍保留该交互）。
+- **修「文字变蓝比图标慢一拍」**：`Tabs` 内部的选中态在切换动画开始时就会翻转，而图标依赖
+  `onChange` 里的 `currentTab`，两者不同源。现在把 `labelStyle` 的 `selectedColor` /
+  `unselectedColor` 都交给 `labelColorOf(idx, ...)`，文字与图标同由 `currentTab` 驱动，一起翻转。
 
 ### 0.2.14 — 已回滚（2026-10-27）
 
