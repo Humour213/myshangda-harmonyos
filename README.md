@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.17-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.18-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,18 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.18 — 2026-10-27
+
+- **包名改为 `com.humour.myshangda`**，与原作者仓库的 `com.courier.myshangda` 分开。原因是后者在本机
+  没有任何签名材料，只能产出 unsigned 包、还得在 DevEco 里手工签名才能装；换成自己账号下的包名后，
+  可以直接用调试证书签名，`hap-sign-tool verify-app` 校验通过，出包即可安装。
+- `vendor` 同步改为 `humour213`。
+- **上课提醒的跳转包名同步修改**（`Reminders.ets` 的 `PKG_NAME`）。这个常量必须与工程一致，
+  漏改会导致点击提醒拉不起应用。
+- 已经装过 0.2.17 的设备可**直接覆盖升级**，包名未变，登录态、偏好设置与课表缓存都保留。
+- 签名用的是 AGC 调试证书（`com.humour.myshangda`，有效期至 2027-10-21），**绑定 3 台已登记设备**，
+  只能在这些设备上安装，不用于公开分发；对外发布仍需申请正式发布证书。
 
 ### 0.2.17 — 2026-10-27
 
@@ -309,7 +321,7 @@ entry/build/default/outputs/default/entry-default-signed.hap
 
 ```bash
 hdc install -r entry/build/default/outputs/default/entry-default-signed.hap
-hdc shell aa start -a EntryAbility -b com.courier.myshangda
+hdc shell aa start -a EntryAbility -b com.humour.myshangda
 ```
 
 ## 使用说明

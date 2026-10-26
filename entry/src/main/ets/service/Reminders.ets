@@ -16,7 +16,7 @@ const DAYS_AHEAD: number = 3;
 /** 提醒标题，用来识别并清理我们自己发的提醒 */
 const TITLE: string = '上课提醒';
 /** 点击提醒拉起的包名，必须与本工程一致 */
-const PKG_NAME: string = 'com.courier.myshangda';
+const PKG_NAME: string = 'com.humour.myshangda';
 
 /** 每一节的开始时间（和桌面卡片保持一致） */
 const PERIOD_START: string[] = [
