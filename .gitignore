@@ -1,0 +1,18 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+
+# local debugging captures
+st_*.png
+st_*.xml
+# local test captures and seeded prefs
+/shots
