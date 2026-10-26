@@ -31,6 +31,8 @@ export struct WebTab {
   @Prop scrapeSchedule: boolean = false;
   @Prop @Watch('onActiveChange') active: boolean = false;
   onScrollEvent: (y: number) => void = (_y: number) => {};
+  /** 网页区的滑动采样：dy>0 表示手指上移，dtMs 为本次采样间隔 */
+  onSwipeEvent: (dy: number, dtMs: number) => void = (_dy: number, _dtMs: number) => {};
   onRouteEvent: (url: string) => void = (_url: string) => {};
   onTitleEvent: (t: string) => void = (_t: string) => {};
 
@@ -57,6 +59,9 @@ export struct WebTab {
   private lastRefreshAt: number = 0;
   private watchExtended: boolean = false;
   private loadFailed: boolean = false;
+  /** 底栏收放用的触摸采样 */
+  private touchY: number = -1;
+  private touchTs: number = 0;
 
   private controller: webview.WebviewController = new webview.WebviewController();
   private bridge: DshBridge | undefined = undefined;
@@ -912,6 +917,10 @@ export struct WebTab {
             event.request.deny();
           }
         })
+        // 底栏收放：只读触摸、不消费手势，网页照常滑动
+        .onTouch((e: TouchEvent) => {
+          this.handleTouch(e);
+        })
       }
       .layoutWeight(1)
       .width('100%')
@@ -1131,6 +1140,41 @@ class DshBridge {
 
   onScroll(y: number): void {
     this.scrollCb(y);
+  }
+
+  /**
+   * 底栏收放的滑动采样。
+   *
+   * 门户页面是虚拟滚动容器，JS 侧拿不到 scrollY（window.scrollY 恒为 0），
+   * 所以直接在 ArkUI 层读触摸位移与采样间隔，只把「速度」报上去，
+   * 方向判定和阈值留给 Index 统一处理。
+   */
+  private handleTouch(e: TouchEvent): void {
+    if (e.type !== TouchType.Move) {
+      if (e.type === TouchType.Down) {
+        if (e.touches.length > 0) {
+          this.touchY = e.touches[0].y;
+          this.touchTs = e.timestamp;
+        }
+      } else {
+        this.touchY = -1;
+        this.touchTs = 0;
+      }
+      return;
+    }
+    if (this.touchY < 0 || e.touches.length === 0) {
+      return;
+    }
+    const y: number = e.touches[0].y;
+    const dy: number = this.touchY - y;
+    const dtMs: number = (e.timestamp - this.touchTs) / 1000000;
+    this.touchY = y;
+    this.touchTs = e.timestamp;
+    // 采样间隔过大（手指停顿过）就不算速度，避免误判
+    if (dtMs <= 0 || dtMs > 120 || Math.abs(dy) < 3) {
+      return;
+    }
+    this.onSwipeEvent(dy, dtMs);
   }
 
   onRoute(url: string): void {

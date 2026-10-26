@@ -29,23 +29,30 @@ const DOCK_ROOTS: string[][] = [
   [`${BASE_URL}/my/index`]
 ];
 
+/** 主页在底栏里的下标（消息 0 / 审批 1 / 主页 2 / 通讯录 3 / 我的 4） */
+const HOME_TAB = 2;
+/** 底栏浮起时的下边距（vp） */
+const BAR_MARGIN = 12;
+/** 收起后底栏下移的距离：要大于「底栏高度 + 下边距」，才能完全移出屏幕 */
+const BAR_HIDDEN_MARGIN = -180;
+
 @Entry
 @Component
 struct Index {
   @State tabs: TabDef[] = buildTabs();
-  @State currentTab: number = 2;
+  @State currentTab: number = HOME_TAB;
   @State gateLoading: boolean = true;
   @State needGate: boolean = false;
   @State gateUser: string = '';
   @State gatePass: string = '';
   @State gateBusy: boolean = false;
-  @State dockVisible: boolean = true;
+  /** 底栏是否已因快速滑动而收起（只改 barBottomMargin，不销毁底栏） */
+  @State barHidden: boolean = false;
   @State tabUrls: string[] = ['', '', '', '', '', ''];
   @State tabTitles: string[] = ['', '', '', '', '', ''];
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
   @StorageLink('dsh_last_todo') lastTodoCount: number = 0;
   @StorageLink('dsh_nav_style') @Watch('onNavStyleChange') navStyle: string = 'native';
-  @State lastScrollY: number = 0;
   @State routeHanding: boolean = false;
   @State agreeTerms: boolean = false;
   @State rememberPw: boolean = true;
@@ -57,6 +64,8 @@ struct Index {
   /** 本次是「退出登录后再登」，登录成功需要重载所有 tab */
   private wasLoggedOut: boolean = false;
   private netConn: connection.NetConnection | undefined = undefined;
+  /** 底栏收起后的自动回归定时器 */
+  private barTimer: number = -1;
   @StorageLink('dsh_targetUrl') @Watch('onTargetUrl') targetUrl: string = '';
   @StorageLink('dsh_session_ready') @Watch('onSessionReady') sessionReadyTs: number = 0;
   /** 网页里点了退出登录：清完会话后 Index 负责切回登录页 */
@@ -161,6 +170,11 @@ struct Index {
     this.gateBusy = false;
     this.agreeTerms = true;
     this.wasLoggedOut = true;
+    // 退出登录不保留现场：重新登录后落在主页
+    this.currentTab = HOME_TAB;
+    WebRegistry.setActive(`tab-${HOME_TAB}`);
+    this.showBar(true);
+    this.saveLastTab(HOME_TAB);
     this.needGate = true;
     this.applyWindowStyle();
   }
@@ -196,15 +210,22 @@ struct Index {
     this.registerNetwork();
     PrefsStore.getLogin(ctx).then((l: SavedLogin) => {
       this.needGate = l.user === '' || l.pass === '';
-      this.gateLoading = false;
-      this.syncStatusBar();
-      this.onTargetUrl();
-      if (!this.needGate) {
-        // 已登录：进入主界面后按「功能设置」自动打开对应功能
-        setTimeout(() => {
-          this.tryAutoOpen();
-        }, 2500);
-      }
+      // 恢复上次停留的 Tab：在 gateLoading 放开之前拿到，避免先闪一下主页再跳
+      PrefsStore.getLastTab(ctx).then((last: number) => {
+        if (last >= 0 && last < this.tabs.length) {
+          this.currentTab = last;
+          WebRegistry.setActive(`tab-${last}`);
+        }
+        this.gateLoading = false;
+        this.syncStatusBar();
+        this.onTargetUrl();
+        if (!this.needGate) {
+          // 已登录：进入主界面后按「功能设置」自动打开对应功能
+          setTimeout(() => {
+            this.tryAutoOpen();
+          }, 2500);
+        }
+      });
     });
     PrefsStore.isStatementAgreed(ctx).then((agreed: boolean) => {
       if (!agreed) {
@@ -237,8 +258,8 @@ struct Index {
     }
     this.applyWindowStyle();
     this.setupNotifications();
-    // 启动始终落在主页（底栏顺序：消息、审批、主页、通讯录、我的）
-    WebRegistry.setActive('tab-2');
+    // 先按主页登记当前页，读回上次停留的 Tab 后会再改一次
+    WebRegistry.setActive(`tab-${this.currentTab}`);
     this.registerShakeSensor();
   }
 
@@ -388,6 +409,8 @@ struct Index {
   onNavStyleChange(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
     PrefsStore.setNavStyle(ctx, this.navStyle);
+    // 换外观会重建底栏，先确保它是展开的
+    this.showBar(true);
     this.applyWindowStyle();
   }
 
@@ -447,6 +470,79 @@ struct Index {
     }, 260);
   }
 
+  // ===================== 底栏收起 / 唤出 =====================
+
+  /** 底栏离底部的距离：收起时给一个足够大的负值，让它整体移出屏幕 */
+  barBottomMargin(): number {
+    return this.barHidden ? BAR_HIDDEN_MARGIN : BAR_MARGIN;
+  }
+
+  /**
+   * 收起 / 唤出底栏。
+   *
+   * 只改 barFloatingStyle 的 barBottomMargin（底栏是浮在内容上的，
+   * 不参与布局，所以移出去不会让网页跳动），配合 animateTo 做位移。
+   */
+  showBar(show: boolean): void {
+    if (!show && this.barHidden) {
+      // 已经收起，只把自动回归的计时往后推
+      this.scheduleBarBack();
+      return;
+    }
+    if (show && !this.barHidden) {
+      return;
+    }
+    if (show && this.barTimer >= 0) {
+      clearTimeout(this.barTimer);
+      this.barTimer = -1;
+    }
+    animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+      this.barHidden = !show;
+    });
+    if (!show) {
+      this.scheduleBarBack();
+    }
+  }
+
+  /** 收起后 1.5 秒自动回来：既让开内容，又不至于让用户找不到底栏 */
+  private scheduleBarBack(): void {
+    if (this.barTimer >= 0) {
+      clearTimeout(this.barTimer);
+    }
+    this.barTimer = setTimeout(() => {
+      this.barTimer = -1;
+      this.showBar(true);
+    }, 1500);
+  }
+
+  /**
+   * 网页区的手势：看「滑动速度」而不是距离。
+   *
+   * 慢速拖动（看长文、微调位置）不会触发，快速一挥才生效；
+   * 0.6 vp/ms 约等于 600vp/秒，比正常滚屏快、比随手一划慢。
+   * 手指往上滑（= 往下看内容）收起，往下滑唤出。
+   */
+  onWebSwipe(dy: number, dtMs: number): void {
+    if (Router.stack.size() > 0) {
+      return;
+    }
+    if (dtMs <= 0 || dtMs > 120 || Math.abs(dy) < 3) {
+      return;
+    }
+    const speed: number = dy / dtMs;
+    if (speed > 0.6) {
+      this.showBar(false);
+    } else if (speed < -0.6) {
+      this.showBar(true);
+    }
+  }
+
+  private saveLastTab(idx: number): void {
+    const ctx = getContext(this) as common.UIAbilityContext;
+    PrefsStore.saveLastTab(ctx, idx).catch(() => {
+    });
+  }
+
   switchTab(idx: number, silent: boolean = false): void {
     hilog.info(0x0001, 'Index', 'switchTab to %{public}d', idx);
     if (idx === this.currentTab && !silent) {
@@ -454,8 +550,8 @@ struct Index {
     }
     this.currentTab = idx;
     WebRegistry.setActive(`tab-${idx}`);
-    this.lastScrollY = 0;
-    this.dockVisible = true;
+    this.showBar(true);
+    this.saveLastTab(idx);
   }
 
   // 精确判定：URL 是否为该 Tab 的根页面（原版一切非根内容都是独立子页）
@@ -842,7 +938,8 @@ struct Index {
               .barFloatingStyle({
                 barWidth: { smallBarWidth: '72%', mediumBarWidth: 480, largeBarWidth: 560 },
                 barSideMargin: 16,
-                barBottomMargin: 12
+                // 底栏是浮层，不占布局，所以整体下移不会让网页跳动
+                barBottomMargin: this.barBottomMargin()
               })
               .animationDuration(300)
               .scrollable(true)
@@ -868,7 +965,7 @@ struct Index {
             .barOverlap(true)
             .animationDuration(300)
             .barFloatingStyle({
-              barBottomMargin: 12,
+              barBottomMargin: this.barBottomMargin(),
               systemMaterialEffect: {
                 materialType: hdsMaterial.MaterialType.IMMERSIVE,
                 materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
@@ -950,6 +1047,9 @@ struct Index {
         if (Router.stack.size() > 0) {
           return;
         }
+      },
+      onSwipeEvent: (dy: number, dtMs: number) => {
+        this.onWebSwipe(dy, dtMs);
       },
       onRouteEvent: (url: string) => {
         if (idx === this.currentTab) {

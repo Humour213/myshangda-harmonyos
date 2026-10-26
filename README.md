@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.2-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.3-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,16 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.3 — 2026-10-27
+
+- **恢复上次停留的 Tab**：正常退出后再打开，会回到你上次看的那一屏（此前固定落主页）。
+  退出登录时不保留现场，重新登录仍落主页。
+- **滑动收起底栏**：在网页里快速上滑（往下看内容）时底栏滑出屏幕，1.5 秒后自动回来；
+  快速下滑随时唤出。判定用的是**滑动速度**（0.6 vp/ms）而不是距离，
+  慢慢拖、微调位置都不会误触发。只改 `barFloatingStyle` 的 `barBottomMargin`，
+  底栏是浮层，收起不会让网页重新排版、也不会跳动。
+- 切换 Tab、切换外观、退出登录都会立即把底栏展开。
 
 ### 0.2.2 — 2026-10-26
 

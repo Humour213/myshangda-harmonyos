@@ -154,12 +154,17 @@ export class PrefsStore {
     }
   }
 
+  /**
+   * 上次停留的 Tab。
+   * 默认返回 -1 表示「没记录过」，由调用方决定落哪个 Tab
+   * （不能用 0 当默认值，否则首启会落到第一个 Tab 而不是主页）。
+   */
   static async getLastTab(ctx: common.UIAbilityContext): Promise<number> {
     try {
       const store = await PrefsStore.getStore(ctx);
-      return (await store.get(KEY_LAST_TAB, 0)) as number;
+      return (await store.get(KEY_LAST_TAB, -1)) as number;
     } catch (e) {
-      return 0;
+      return -1;
     }
   }
 }
