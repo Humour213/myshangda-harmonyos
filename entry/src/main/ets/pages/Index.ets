@@ -17,6 +17,7 @@ import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC } from '../common/PrefsStore';
 import { preferences } from '@kit.ArkData';
 import { promptAction } from '@kit.ArkUI';
+import { display } from '@kit.ArkUI';
 import { window } from '@kit.ArkUI';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { common } from '@kit.AbilityKit';
@@ -46,18 +47,19 @@ const BAR_MARGIN = 12;
  */
 const BAR_MARGIN_NATIVE = 6;
 /**
- * 原版 App 样式下，把底栏整体抬离屏幕底边的距离（vp）。
+ * 原版 App 样式下，底栏离屏幕底边的距离（vp）。
  *
  * 这个样式跑在真全屏沉浸里（setWindowLayoutFullScreen(true)），窗口不替底栏避让系统手势条，
- * 底栏会一直贴到屏幕最下沿、下沿被手势条压住。这里给 Tabs 留一段底部内边距，
- * 整条底栏（含它自己的背景、图标、文字）一起上移，底栏高度和配色都不动。
+ * 底栏贴着屏幕最下沿就会被手势条压掉一截。底栏改成浮层后，这个值就是它离底的距离。
  */
 const CLASSIC_BAR_LIFT = 24;
+/** 原版样式底栏的左右留白（vp），0 = 占满整行，保持和安卓 / iOS 端一致 */
+const CLASSIC_BAR_SIDE = 0;
 /**
  * 底栏底色（与原版样式的底栏实测颜色一致）。
  *
- * 底栏上移后下面会露出一段空隙，如果不填色就是一道白条，看着像被挡住一截；
- * 填成同一个色值，整条底栏就是「更高的一整块」，接缝消失。
+ * 底栏现在是浮在网页上的，这个色值决定它压住内容时的观感；换成带 alpha 的值（如 #E6F4F5F7）
+ * 就能透出一点下面的网页，做出「毛玻璃感」。
  */
 const CLASSIC_BAR_BG = '#F4F5F7';
 /** 收起后底栏下移的距离：要大于「底栏高度 + 下边距」，才能完全移出屏幕 */
@@ -498,6 +500,21 @@ struct Index {
   }
 
   // ===================== 底栏收起 / 唤出 =====================
+
+  /**
+   * 原版样式底栏的宽度（vp）。
+   *
+   * 浮层样式的 barWidth 只接受具体数值，传百分比会被当成非法值、整个浮动样式失效，
+   * 所以这里按屏幕宽度算一个满行的数值传进去。
+   */
+  classicBarWidth(): number {
+    try {
+      const w: number = px2vp(display.getDefaultDisplaySync().width);
+      return Math.max(240, Math.round(w) - CLASSIC_BAR_SIDE * 2);
+    } catch (e) {
+      return 360;
+    }
+  }
 
   /** 底栏离底部的距离：收起时给一个足够大的负值，让它整体移出屏幕 */
   barBottomMargin(): number {
@@ -985,19 +1002,22 @@ struct Index {
                 }, (tab: TabDef) => `${tab.id}`)
               }
               .layoutWeight(1)
-              // 这个样式是真全屏沉浸（setWindowLayoutFullScreen(true)），窗口不替底栏避让，
-              // 底栏会一直贴到屏幕最下沿、被手势条压住。这里在 Tabs 底部留出安全距离，
-              // 把整条底栏抬起来；底栏自身的高度、图标、配色都不动。
-              // 底色与底栏一致，抬起后露出的那一段和底栏连成一片，看不出接缝。
-              .padding({ bottom: CLASSIC_BAR_LIFT })
-              .backgroundColor(CLASSIC_BAR_BG)
-              // 底栏本身也钉成同一个实色：页面底色变化时不会出现「上段半透、下段实色」的接缝
+              // 浮层沉浸：底栏浮在网页上方，网页从底栏后面穿过，底栏下面露出的是网页本身，
+              // 不再是窗口背景那块白。
+              //
+              // 注意 barFloatingStyle 的 barWidth 只接受具体数值（文档：cannot be set in percentage），
+              // 早先传 '72%' 会让整个浮动样式被忽略、底栏退回「占位式」，barBottomMargin 也跟着不生效
+              // ——这也是之前怎么调下边距都没反应的原因。
+              .barOverlap(true)
               .barBackgroundColor(CLASSIC_BAR_BG)
               .barFloatingStyle({
-                barWidth: { smallBarWidth: '72%', mediumBarWidth: 480, largeBarWidth: 560 },
-                barSideMargin: 16,
-                // 底栏是浮层，不占布局，所以整体下移不会让网页跳动
-                barBottomMargin: this.barBottomMargin()
+                barWidth: {
+                  smallBarWidth: this.classicBarWidth(),
+                  mediumBarWidth: this.classicBarWidth(),
+                  largeBarWidth: this.classicBarWidth()
+                },
+                barSideMargin: CLASSIC_BAR_SIDE,
+                barBottomMargin: CLASSIC_BAR_LIFT
               })
               .animationDuration(300)
               .scrollable(true)
