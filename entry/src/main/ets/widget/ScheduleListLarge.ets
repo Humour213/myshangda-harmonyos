@@ -144,26 +144,33 @@ struct ScheduleListLarge {
         .padding({ left: 14, right: 14, top: 2, bottom: 2 })
       }
 
-      List({ space: 7 }) {
-        ListItem() {
-          Column({ space: 7 }) {
-            ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
-              if (this.fn(i).length > 0) {
-                this.block(i)
-              }
-            }, (i: number) => String(i))
+      // 留白 10vp，卡片外弧半径按 18 算，滚动区内缩 10vp，裁切弧取 18 - 10 = 8，
+      // 内外两条弧同心平行，留白不会被裁切吃掉。
+      Column() {
+        List({ space: 7 }) {
+          ListItem() {
+            Column({ space: 7 }) {
+              ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
+                if (this.fn(i).length > 0) {
+                  this.block(i)
+                }
+              }, (i: number) => String(i))
+            }
+            .width('100%')
+            .padding({ top: 6, bottom: 0 })
+            .alignItems(HorizontalAlign.Start)
           }
-          .width('100%')
-          .padding({ left: 10, right: 10, top: 6, bottom: 12 })
-          .alignItems(HorizontalAlign.Start)
         }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.None)
+        .borderRadius({ bottomLeft: 8, bottomRight: 8 })
+        .clip(true)
       }
       .width('100%')
       .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.None)
-      .borderRadius({ bottomLeft: 16, bottomRight: 16 })
-      .clip(true)
+      .padding({ left: 10, right: 10, bottom: 10 })
     }
     .width('100%')
     .height('100%')

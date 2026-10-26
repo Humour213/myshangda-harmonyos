@@ -144,26 +144,36 @@ struct ScheduleListSmall {
       .padding({ left: 12, right: 12, top: 2, bottom: 2 })
 
       // 还没上完的课：上完一节就少一条
-      List({ space: 5 }) {
-        ListItem() {
-          Column({ space: 5 }) {
-            ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
-              if (this.fn(i).length > 0) {
-                this.block(i)
-              }
-            }, (i: number) => String(i))
+      //
+      // 留白与弧度：外面这层 Column 负责"留白"（左/右/下各 8vp，和上、左、右的留白等宽），
+      // 里面那层 List 才是被裁切的滚动区。卡片外弧半径按 16 算，滚动区整体内缩 8vp，
+      // 所以裁切弧取 16 - 8 = 8 —— 两条弧同心，留白处处等宽，弧线切的是课程内容本身，
+      // 而不是把留白吃掉、让内容顶到卡片底边。
+      Column() {
+        List({ space: 5 }) {
+          ListItem() {
+            Column({ space: 5 }) {
+              ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
+                if (this.fn(i).length > 0) {
+                  this.block(i)
+                }
+              }, (i: number) => String(i))
+            }
+            .width('100%')
+            .padding({ top: 6, bottom: 0 })
+            .alignItems(HorizontalAlign.Start)
           }
-          .width('100%')
-          .padding({ left: 8, right: 8, top: 6, bottom: 12 })
-          .alignItems(HorizontalAlign.Start)
         }
+        .width('100%')
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.None)
+        .borderRadius({ bottomLeft: 8, bottomRight: 8 })
+        .clip(true)
       }
       .width('100%')
       .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.None)
-      .borderRadius({ bottomLeft: 16, bottomRight: 16 })
-      .clip(true)
+      .padding({ left: 8, right: 8, bottom: 8 })
     }
     .width('100%')
     .height('100%')
