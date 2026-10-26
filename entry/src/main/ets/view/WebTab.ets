@@ -589,10 +589,13 @@ export struct WebTab {
 
   build() {
     Stack() {
-      // 下拉刷新的手感全在这两个参数上：
-      //   friction 越大越“沉”，轻扫带不动内容；
-      //   refreshOffset 是触发刷新的下拉距离，默认 64vp 太浅，稍微往下带一下就刷新了。
-      Refresh({ refreshing: $$this.refreshing, friction: 88 }) {
+      // 下拉刷新的手感拆成两个互不干扰的参数（friction 已被 pullDownRatio 取代）：
+      //   refreshOffset = 下拉多少距离算触发，也就是**刷新时顶部被撑开的空白高度**；
+      //   pullDownRatio = 跟手比，内容位移 = 手指位移 × ratio，值越小越"拉不动"。
+      // 想让空白变少就得把 refreshOffset 调矮，但光调矮会变得一碰就刷新，
+      // 所以同时把 ratio 压到 0.55：要拉到 64 / 0.55 ≈ 116vp 才触发，手感和原来 112vp 一致，
+      // 但顶上只留 64vp 空白（原来 112vp），视觉上不再是大白块。
+      Refresh({ refreshing: $$this.refreshing }) {
         Web({ src: this.rootUrl, controller: this.controller })
         .width('100%')
         .height('100%')
@@ -924,7 +927,8 @@ export struct WebTab {
       }
       .layoutWeight(1)
       .width('100%')
-      .refreshOffset(112)
+      .refreshOffset(64)
+      .pullDownRatio(0.55)
       .onRefreshing(() => {
         this.startRefresh();
       })
