@@ -14,7 +14,6 @@ struct ScheduleLarge {
   @LocalStorageProp('heroPlace') heroPlace: string = '';
   @LocalStorageProp('heroNote') heroNote: string = '';
   @LocalStorageProp('progress') progress: number = -1;
-  @LocalStorageProp('restLabel') restLabel: string = '';
   @LocalStorageProp('summary') summary: string = '';
   @LocalStorageProp('accent') accent: string = '#8A94A6';
   @LocalStorageProp('tint') tint: string = '#F0F2F6';
@@ -219,12 +218,6 @@ struct ScheduleLarge {
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.None)
 
-      if (this.restLabel.length > 0) {
-        Text(this.restLabel)
-          .fontSize(10)
-          .fontColor(this.accent)
-          .opacity(0.9)
-      }
     }
     .width('100%')
     .height('100%')

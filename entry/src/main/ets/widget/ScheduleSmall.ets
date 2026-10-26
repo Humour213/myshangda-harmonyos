@@ -11,9 +11,7 @@ struct ScheduleSmall {
   @LocalStorageProp('heroName') heroName: string = '';
   @LocalStorageProp('heroTime') heroTime: string = '';
   @LocalStorageProp('heroPlace') heroPlace: string = '';
-  @LocalStorageProp('heroNote') heroNote: string = '';
   @LocalStorageProp('progress') progress: number = -1;
-  @LocalStorageProp('restLabel') restLabel: string = '';
   @LocalStorageProp('accent') accent: string = '#8A94A6';
   @LocalStorageProp('tint') tint: string = '#F0F2F6';
   @LocalStorageProp('ink') ink: string = '#232A36';
@@ -75,33 +73,33 @@ struct ScheduleSmall {
     return 0;
   }
 
-  private hm(t: string): string {
-    if (t.length >= 5) {
-      return t.substring(0, 5);
-    }
-    return t;
-  }
-
+  /** 下下节：一条完整的课时（课名 + 时段），保证不会被截半 */
   @Builder
-  row(i: number) {
-    Row({ space: 7 }) {
+  nextCourse(i: number) {
+    Row({ space: 8 }) {
       Row()
         .width(6)
         .height(6)
         .backgroundColor(this.ff(i))
         .borderRadius(3)
-      Text(this.fn(i))
-        .fontSize(12)
-        .fontColor(this.ink)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(1)
-      Text(this.hm(this.ft(i)))
-        .fontSize(10)
-        .fontColor('#8A91A0')
+      Column() {
+        Text(this.fn(i))
+          .fontSize(12)
+          .fontColor(this.ink)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.ft(i))
+          .fontSize(9)
+          .fontColor('#8A91A0')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .height(23)
   }
 
   build() {
@@ -161,11 +159,6 @@ struct ScheduleSmall {
           .backgroundColor('#EBEEF3')
           .borderRadius(2)
           .margin({ top: 6 })
-        } else if (this.heroNote.length > 0) {
-          Text(this.heroNote)
-            .fontSize(10)
-            .fontColor(this.accent)
-            .margin({ top: 3 })
         }
       }
       .width('100%')
@@ -174,32 +167,16 @@ struct ScheduleSmall {
       .borderRadius(11)
       .alignItems(HorizontalAlign.Start)
 
-      // 次要信息：之后还有的课
-      List({ space: 1 }) {
-        ListItem() {
-          Column() {
-            ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
-              if (i + this.off() < 8 && this.fn(i + this.off()).length > 0) {
-                this.row(i + this.off())
-              }
-            }, (i: number) => String(i))
-          }
-          .width('100%')
-          .padding({ top: 6, bottom: 2 })
-          .alignItems(HorizontalAlign.Start)
+      // 下下节：只放一条，且保证是完整的一个课时，宁可少放也不截半
+      Column() {
+        if (this.off() < 8 && this.fn(this.off()).length > 0) {
+          this.nextCourse(this.off())
         }
       }
       .width('100%')
       .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.None)
-
-      if (this.restLabel.length > 0) {
-        Text(this.restLabel)
-          .fontSize(9)
-          .fontColor(this.accent)
-          .opacity(0.9)
-      }
+      .padding({ top: 8 })
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .height('100%')

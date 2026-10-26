@@ -34,8 +34,6 @@ class CardData {
   heroNote: string = '';
   /** 上课进度 0-100；-1 表示不显示进度条 */
   progress: number = -1;
-  /** 此刻卡底部小字，如「还有 2 节」（已扣掉主视觉那一条） */
-  restLabel: string = '';
   /** 列表卡抬头，如「今天还有 3 节」「明天 · 共 4 节」 */
   listLabel: string = '';
   /** 大卡右上角统计，如「共 6 节 · 还剩 3 节」 */
@@ -245,15 +243,9 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       d.listLabel = `今天还有 ${remaining.length} 节`;
 
       // 列表：还没上完的全部课程，含正在上/下一节
-      let cnt: number = 0;
       for (let i = 0; i < remaining.length && i < 8; i++) {
         const c: CourseItem = remaining[i];
         this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, FG[i % FG.length]);
-        cnt++;
-      }
-      // 此刻卡的主视觉已经占了第一条，底部只报剩下的
-      if (cnt > 1) {
-        d.restLabel = `还有 ${cnt - 1} 节`;
       }
       return d;
     } catch (err) {
@@ -290,14 +282,9 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     d.heroNote = `共 ${list.length} 节`;
     d.listLabel = `明天 · 共 ${list.length} 节`;
     d.summary = `明天共 ${list.length} 节`;
-    let cnt: number = 0;
     for (let i = 0; i < list.length && i < 8; i++) {
       const c: CourseItem = list[i];
-      this.setSlot(d, cnt, this.timeRange(c.start, c.span), c.name, c.place, TM_FG);
-      cnt++;
-    }
-    if (cnt > 1) {
-      d.restLabel = `明天还有 ${cnt - 1} 节`;
+      this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, TM_FG);
     }
     return true;
   }
