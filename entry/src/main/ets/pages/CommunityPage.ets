@@ -209,7 +209,7 @@ export struct CommunityPage {
             this.card('联系作者')
             Column() {
               Row() {
-                Text('作者邮箱')
+                Text('维护者邮箱')
                   .fontSize(15)
                   .fontColor('#1A1A1A')
                   .layoutWeight(1)
@@ -226,7 +226,7 @@ export struct CommunityPage {
                 this.mailTo();
               })
               if (!this.emailReady()) {
-                Text('邮箱域名尚未补全，补全后会显示为可点击的邮件入口')
+                Text('可直接发信给本仓库维护者')
                   .fontSize(11)
                   .fontColor('#B0B6BF')
                   .width('100%')

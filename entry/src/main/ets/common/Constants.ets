@@ -33,8 +33,8 @@ export const AUTHOR_UPSTREAM_URL = 'https://github.com/ZHOUcourrier';
 /** 本仓库维护者 */
 export const AUTHOR_SELF_NAME = 'Humour213';
 export const AUTHOR_SELF_URL = 'https://github.com/Humour213';
-/** 作者联系邮箱：域名部分请按实际补全，补全后本行注释可删 */
-export const COMMUNITY_EMAIL = 'minchincherrylips6@';
+/** 本仓库维护者（Humour213）的联系邮箱 */
+export const COMMUNITY_EMAIL = '2496548066@qq.com';
 
 // 门户 H5 只有在 UA 含 zfsoft 时才进入 App 分支（我的页会多出 App 专属菜单）
 export const MOBILE_UA =

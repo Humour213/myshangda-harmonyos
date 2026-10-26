@@ -56,8 +56,42 @@ export default class EntryAbility extends UIAbility {
     hilog.info(DOMAIN, TAG, 'Ability onDestroy');
   }
 
+  /**
+   * 把底部导航条 / 手势条高度写进 AppStorage。
+   *
+   * 为什么不在页面里取：页面里 `window.getLastWindow()` 的 promise 在真机上不 resolve
+   * （Index.applyWindowStyle 里也有同样的注释），拿到的永远是默认值。
+   * 窗口在 Ability 这边是现成的，`getMainWindowSync()` 同步可读，稳。
+   */
+  private syncBottomInset(win: window.Window): void {
+    try {
+      const sys = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_SYSTEM);
+      const nav = win.getWindowAvoidArea(window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
+      const h = Math.max(sys.bottomRect.height, nav.bottomRect.height);
+      AppStorage.setOrCreate('dsh_bottomInsetPx', h);
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'read avoid area failed %{public}s', JSON.stringify(e));
+    }
+  }
+
   onWindowStageCreate(windowStage: window.WindowStage): void {
     hilog.info(DOMAIN, TAG, 'Ability onWindowStageCreate');
+
+    try {
+      const win = windowStage.getMainWindowSync();
+      this.syncBottomInset(win);
+      // 全屏 / 旋转 / 导航方式切换都会改避让区，跟随更新
+      win.on('avoidAreaChange', (data: window.AvoidAreaOptions) => {
+        if (data.type === window.AvoidAreaType.TYPE_SYSTEM ||
+          data.type === window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR) {
+          if (data.area.bottomRect.height > 0) {
+            AppStorage.setOrCreate('dsh_bottomInsetPx', data.area.bottomRect.height);
+          }
+        }
+      });
+    } catch (e) {
+      hilog.error(DOMAIN, TAG, 'stage window hook failed %{public}s', JSON.stringify(e));
+    }
 
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {

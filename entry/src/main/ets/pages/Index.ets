@@ -56,6 +56,12 @@ struct Index {
   @State tabUrls: string[] = ['', '', '', '', '', ''];
   @State tabTitles: string[] = ['', '', '', '', '', ''];
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
+  /**
+   * 底部导航条 / 手势条高度（px）。classic 是真全屏，窗口不会替底栏避让，
+   * 底栏 12vp 的离底距离会被压掉一截，所以要用这个值把底栏整体抬进安全区。
+   * 由 EntryAbility 在 onWindowStageCreate 里用 getMainWindowSync() 写入。
+   */
+  @StorageLink('dsh_bottomInsetPx') bottomInsetPx: number = 0;
   @StorageLink('dsh_last_todo') lastTodoCount: number = 0;
   @StorageLink('dsh_nav_style') @Watch('onNavStyleChange') navStyle: string = 'native';
   @State routeHanding: boolean = false;
@@ -477,9 +483,24 @@ struct Index {
 
   // ===================== 底栏收起 / 唤出 =====================
 
-  /** 底栏离底部的距离：收起时给一个足够大的负值，让它整体移出屏幕 */
+  /**
+   * 底栏离底部的距离：收起时给一个足够大的负值，让它整体移出屏幕。
+   *
+   * classic 是「真全屏沉浸」（setWindowLayoutFullScreen(true)），窗口不会替底栏避让系统导航条，
+   * 12vp 太贴底，底栏下沿会被手势条压掉一截。这里在 classic 下补上底部避让区高度，
+   * 底栏高度、样式、和安卓/iOS 端一致的观感全部保持不变，只是整体上移到安全区内。
+   * native 用的是系统布局，窗口已经避让过，不能重复加。
+   */
   barBottomMargin(): number {
-    return this.barHidden ? BAR_HIDDEN_MARGIN : BAR_MARGIN;
+    if (this.barHidden) {
+      return BAR_HIDDEN_MARGIN;
+    }
+    if (this.navStyle !== NAV_STYLE_CLASSIC) {
+      return BAR_MARGIN;
+    }
+    // 读不到避让区时按手势条常见高度兜底（宁可多抬 12vp，也不要再被压住）
+    const inset: number = px2vp(this.bottomInsetPx);
+    return BAR_MARGIN + (inset > 0 ? inset : 12);
   }
 
   /**
