@@ -154,7 +154,7 @@ struct ScheduleListLarge {
             }, (i: number) => String(i))
           }
           .width('100%')
-          .padding({ left: 10, right: 10, top: 6, bottom: 4 })
+          .padding({ left: 10, right: 10, top: 6, bottom: 12 })
           .alignItems(HorizontalAlign.Start)
         }
       }
@@ -167,7 +167,6 @@ struct ScheduleListLarge {
     }
     .width('100%')
     .height('100%')
-    .padding({ bottom: 10 })
     .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
     .onClick(() => {
       postCardAction(this, {
