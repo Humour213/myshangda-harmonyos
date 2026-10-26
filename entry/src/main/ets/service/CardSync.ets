@@ -39,27 +39,35 @@ export class CardSync {
     }
   }
 
-  /** 读取缓存；没有缓存时返回空课表 */
-  static load(ctx: common.UIAbilityContext): ScheduleData {
-    const empty: ScheduleData = { term: '', week: '', courses: [] };
+  /** 读缓存原文，用来判断课表有没有变化（判断变化比重新解析便宜） */
+  private static readRaw(ctx: common.UIAbilityContext): string {
     try {
       const path: string = CardSync.filePath(ctx);
       if (!fileIo.accessSync(path)) {
-        return empty;
+        return '';
       }
       const size: number = fileIo.statSync(path).size;
       if (size <= 0) {
-        return empty;
+        return '';
       }
       const buf: ArrayBuffer = new ArrayBuffer(size);
       const file = fileIo.openSync(path, fileIo.OpenMode.READ_ONLY);
       fileIo.readSync(file.fd, buf);
       fileIo.closeSync(file);
-      const txt: string = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buf));
-      return parseSchedule(txt);
+      return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buf));
     } catch (err) {
+      return '';
+    }
+  }
+
+  /** 读取缓存；没有缓存时返回空课表 */
+  static load(ctx: common.UIAbilityContext): ScheduleData {
+    const txt: string = CardSync.readRaw(ctx);
+    if (txt === '') {
+      const empty: ScheduleData = { term: '', week: '', courses: [] };
       return empty;
     }
+    return parseSchedule(txt);
   }
 
   /**
@@ -87,10 +95,15 @@ export class CardSync {
           resolve(false);
           return;
         }
+        const txt: string = JSON.stringify(d);
+        const before: string = CardSync.readRaw(ctx);
         CardSync.save(ctx, d);
-        // 顺手把接下来三天的上课提醒排好；用户没给通知权限就算了
-        Reminders.sync(d).catch(() => {
-        });
+        // 课表没变就不动提醒：否则每次进首页都会把提醒「全删再全建」，
+        // 既浪费电，也可能让系统把重复发布的提醒当成骚扰
+        if (txt !== before) {
+          Reminders.sync(d).catch(() => {
+          });
+        }
         resolve(true);
       }).catch(() => {
         resolve(false);

@@ -340,10 +340,16 @@ export const ANDROID_BRIDGE_JS = `(function(){
     // 文件/附件
     openFile: function(url, name){ openFile(url, name); },
     previewFile: function(url, name){ openFile(url, name); },
+    viewFile: function(url, name){ openFile(url, name); },
+    getFile: function(url, name){ openFile(url, name); },
     openDocument: function(url, name){ openFile(url, name); },
     openAttachment: function(url, name){ openFile(url, name); },
     downLoadFile: function(url, name){ openFile(url, name); },
     downloadFile: function(url, name){ openFile(url, name); },
+    // 明确要求“用外部浏览器打开”的入口
+    openByBrowser: function(url){ if (typeof url === 'string' && url) { call('onOpenBrowser', abs(url)); } },
+    openBrowser: function(url){ if (typeof url === 'string' && url) { call('onOpenBrowser', abs(url)); } },
+    openUrl: function(url){ openWeb('', url); },
     gotoLogin: function(){ call('onLogout', ''); },
     setBadge: function(){},
     updateBadgeNew: function(){}

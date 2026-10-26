@@ -1,5 +1,5 @@
 import { webview } from '@kit.ArkWeb';
-import { window } from '@kit.ArkUI';
+import { window, promptAction } from '@kit.ArkUI';
 import { common, Want } from '@kit.AbilityKit';
 
 // 统一状态栏工具：一处设定，所有页面复用
@@ -44,10 +44,17 @@ export class Router {
   static stack: NavPathStack = new NavPathStack();
 
   static openSub(url: string, onPop?: () => void): void {
-    if (!url || (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('$rawfile'))) {
+    if (!url) {
       return;
     }
-    // Web 组件 src 只认 resource://rawfile/ 协议
+    // Web 组件 src 只认 http(s) 与 resource://rawfile/
+    // 这里放开 resource:// 是因为 Opener 会把 file:///android_asset/ 映射成它，
+    // 早先只认 $rawfile 前缀，映射后的地址会被这行判断静默丢掉（点了没反应）。
+    const isRaw = url.startsWith('$rawfile/') || url.startsWith('resource://rawfile/');
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !isRaw) {
+      promptAction.showToast({ message: '暂不支持打开这个地址', duration: 1800 });
+      return;
+    }
     const target = url.startsWith('$rawfile/') ? `resource://rawfile/${url.substring(9)}` : url;
     if (onPop !== undefined) {
       Router.stack.pushPathByName('web', target, () => {

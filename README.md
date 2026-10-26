@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.0-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.1-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,19 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.1 — 2026-10-26
+
+- **下拉刷新不再一碰就刷**：触发距离从默认 64vp 提到 112vp，并加大跟手阻尼；
+  首屏加载中、以及 3 秒内的连续下拉都会被忽略，避免把正在加载的页面刷坏。
+- **附件入口再补一层**：地址里带 `?file=` 的预览器页面会先把真实文件地址解出来；
+  下载接口没有后缀时按服务器返回的 Content-Type 补扩展名；文件名里的非法字符自动替换，
+  否则写盘会直接失败。
+- **修复 `resource://rawfile/` 被路由丢弃**：`file:///android_asset/` 映射过来的本地页
+  之前点开毫无反应，现在能正常进子页；不支持的地址会给提示而不是静默失败。
+- **兜底页多了「在浏览器打开」**：套壳确实兼容不了的页面不必反复点重试。
+- **桥接新增** `openByBrowser` / `openBrowser` / `viewFile` / `getFile` / `openUrl` 等别名。
+- **课表没变化就不重排上课提醒**，避免每次进首页都「全删再全建」。
 
 ### 0.2.0 — 2026-10-26
 

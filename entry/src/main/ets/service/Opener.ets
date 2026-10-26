@@ -61,6 +61,21 @@ export class Opener {
     return DOC_EXT.indexOf(ext) >= 0;
   }
 
+  /** 去掉文件名里不能落盘的字符（否则 openSync 直接失败） */
+  private static sanitize(name: string): string {
+    let out: string = '';
+    for (let i = 0; i < name.length; i++) {
+      const c: string = name.charAt(i);
+      if ('\\/:*?"<>|\n\r\t'.indexOf(c) >= 0) {
+        out += '_';
+      } else {
+        out += c;
+      }
+    }
+    const t: string = out.trim();
+    return t.length === 0 ? `download_${Date.now()}` : t;
+  }
+
   /** 从地址里猜一个像样的文件名 */
   static guessName(url: string): string {
     let path: string = url;
@@ -75,7 +90,73 @@ export class Opener {
     } catch (e) {
       // 保持原样
     }
-    return name.length === 0 ? `download_${Date.now()}` : name;
+    return Opener.sanitize(name);
+  }
+
+  /** Content-Type → 扩展名。地址里没有后缀时（下载接口常见）靠它补 */
+  private static extOfType(type: string): string {
+    const t: string = type.toLowerCase();
+    if (t.indexOf('pdf') >= 0) {
+      return 'pdf';
+    }
+    if (t.indexOf('wordprocessingml') >= 0) {
+      return 'docx';
+    }
+    if (t.indexOf('msword') >= 0) {
+      return 'doc';
+    }
+    if (t.indexOf('spreadsheetml') >= 0) {
+      return 'xlsx';
+    }
+    if (t.indexOf('ms-excel') >= 0) {
+      return 'xls';
+    }
+    if (t.indexOf('presentationml') >= 0) {
+      return 'pptx';
+    }
+    if (t.indexOf('ms-powerpoint') >= 0) {
+      return 'ppt';
+    }
+    if (t.indexOf('zip') >= 0) {
+      return 'zip';
+    }
+    if (t.indexOf('text/plain') >= 0) {
+      return 'txt';
+    }
+    return '';
+  }
+
+  private static hasExt(name: string): boolean {
+    const dot: number = name.lastIndexOf('.');
+    return dot > 0 && name.length - dot <= 6;
+  }
+
+  /**
+   * 有些入口不直接给附件地址，而是给一个「预览器」页面，真正的文件在 file 参数里：
+   *   /xxx/view?file=https%3A%2F%2F...%2Fnotice.pdf&name=学生手册
+   * 这种地址塞进 WebView 一样白屏，先把里面的真实地址抠出来。
+   */
+  static extractDocUrl(url: string): string {
+    const lower: string = url.toLowerCase();
+    const idx: number = lower.indexOf('file=');
+    if (idx < 0) {
+      return '';
+    }
+    let v: string = url.substring(idx + 5);
+    const amp: number = v.indexOf('&');
+    if (amp >= 0) {
+      v = v.substring(0, amp);
+    }
+    try {
+      v = decodeURIComponent(v);
+    } catch (e) {
+      return '';
+    }
+    return Opener.isAttachment(v) ? v : '';
+  }
+
+  private static downloadPath(ctx: common.UIAbilityContext, name: string): string {
+    return `${Opener.downloadDir(ctx)}/${name}`;
   }
 
   private static downloadDir(ctx: common.UIAbilityContext): string {
@@ -110,8 +191,7 @@ export class Opener {
    * 这也是「明明在内网也加载不出来」的常见原因。
    */
   static async openAttachment(ctx: common.UIAbilityContext, url: string, name: string): Promise<void> {
-    const fileName: string = name.length > 0 ? name : Opener.guessName(url);
-    const path: string = `${Opener.downloadDir(ctx)}/${fileName}`;
+    let fileName: string = Opener.sanitize(name.length > 0 ? name : Opener.guessName(url));
     let cookie: string = '';
     try {
       cookie = webview.WebCookieManager.fetchCookieSync(url) ?? '';
@@ -130,6 +210,22 @@ export class Opener {
       if (resp.responseCode < 200 || resp.responseCode >= 300) {
         throw new Error(`http ${resp.responseCode}`);
       }
+      // 下载接口常常是 /download?id=123 这种没有后缀的地址，配上服务器给的
+      // Content-Type 才能让系统预览知道用什么打开，否则会报“没有能打开该文件的应用”
+      if (!Opener.hasExt(fileName)) {
+        let ctype: string = '';
+        try {
+          const h: Record<string, string> = resp.header as Record<string, string>;
+          ctype = h['Content-Type'] ?? h['content-type'] ?? '';
+        } catch (e) {
+          ctype = '';
+        }
+        const ext: string = Opener.extOfType(ctype);
+        if (ext !== '') {
+          fileName = `${fileName}.${ext}`;
+        }
+      }
+      const path: string = Opener.downloadPath(ctx, fileName);
       const file = fileIo.openSync(path,
         fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
       fileIo.writeSync(file.fd, resp.result as ArrayBuffer);
@@ -164,9 +260,15 @@ export class Opener {
    * 所有「点一下就打不开」的入口最终都走这里。
    */
   static openSmart(ctx: common.UIAbilityContext, rawUrl: string, name: string): void {
-    const url: string = Opener.resolveLocal(rawUrl);
+    let url: string = Opener.resolveLocal(rawUrl);
     if (url.length === 0) {
       return;
+    }
+    // 预览器页面 → 直接取里面的真实文件地址
+    const inner: string = Opener.extractDocUrl(url);
+    if (inner !== '') {
+      hilog.info(DOMAIN, TAG, 'unwrap viewer page %{public}s', inner);
+      url = inner;
     }
     if (url.startsWith('resource://rawfile/') || url.startsWith('$rawfile/')) {
       Router.openSub(url);

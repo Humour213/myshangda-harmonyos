@@ -53,6 +53,8 @@ export struct WebTab {
   private offlineTimer: number = -1;
   private refreshTimer: number = -1;
   private refreshPending: boolean = false;
+  /** 上次真正触发刷新的时间：用来给下拉刷新做防抖 */
+  private lastRefreshAt: number = 0;
   private watchExtended: boolean = false;
   private loadFailed: boolean = false;
 
@@ -359,6 +361,20 @@ export struct WebTab {
 
   // 下拉刷新：在线时重载当前页；离线时只触发一次探测，不打断缓存页
   private startRefresh(): void {
+    // 闸 1：首屏还在加载时下拉，直接忽略。否则会把正在进行的首屏请求掐断，
+    // 页面停在半截白屏上，用户只会觉得“刷新把页面刷坏了”。
+    if (!this.loaded && this.isLoading) {
+      this.endRefresh();
+      return;
+    }
+    // 闸 2：3 秒内只认一次。阈值调高后仍然可能连着下拉两次，
+    // 第二下不应该再触发一次整页重载。
+    const now: number = Date.now();
+    if (now - this.lastRefreshAt < 3000) {
+      this.endRefresh();
+      return;
+    }
+    this.lastRefreshAt = now;
     this.clearRefreshTimer();
     this.refreshPending = true;
     this.refreshTimer = setTimeout(() => {
@@ -568,7 +584,10 @@ export struct WebTab {
 
   build() {
     Stack() {
-      Refresh({ refreshing: $$this.refreshing }) {
+      // 下拉刷新的手感全在这两个参数上：
+      //   friction 越大越“沉”，轻扫带不动内容；
+      //   refreshOffset 是触发刷新的下拉距离，默认 64vp 太浅，稍微往下带一下就刷新了。
+      Refresh({ refreshing: $$this.refreshing, friction: 88 }) {
         Web({ src: this.rootUrl, controller: this.controller })
         .width('100%')
         .height('100%')
@@ -669,7 +688,7 @@ export struct WebTab {
             this.controller.registerJavaScriptProxy(
               this.bridge, '__dshNative',
               ['onScroll', 'onRoute', 'openWith', 'closePage', 'onShareApp', 'onCheckVersion', 'onJsBridge',
-                'onLogout', 'onScan', 'onOpenFile']
+                'onLogout', 'onScan', 'onOpenFile', 'onOpenBrowser']
             );
           } catch (e) {
             hilog.error(DOMAIN, TAG, 'register proxy failed %{public}s', JSON.stringify(e));
@@ -896,6 +915,7 @@ export struct WebTab {
       }
       .layoutWeight(1)
       .width('100%')
+      .refreshOffset(112)
       .onRefreshing(() => {
         this.startRefresh();
       })
@@ -940,16 +960,32 @@ export struct WebTab {
           Text(this.online ? '下拉或点击重试' : '网络恢复后会自动重新加载')
             .fontSize(12)
             .fontColor('#BBBBBB')
-          Button('重试')
-            .fontSize(14)
-            .fontColor(Color.White)
-            .backgroundColor('#2D8CFA')
-            .borderRadius(18)
-            .height(36)
-            .width(110)
-            .onClick(() => {
-              this.manualRetry();
-            })
+          Row({ space: 12 }) {
+            Button('重试')
+              .fontSize(14)
+              .fontColor(Color.White)
+              .backgroundColor('#2D8CFA')
+              .borderRadius(18)
+              .height(36)
+              .width(110)
+              .onClick(() => {
+                this.manualRetry();
+              })
+            // 有些页面在套壳里就是不兼容（老控件、站外跳转），给一个能出去的口子，
+            // 总比让人对着兜底页反复点重试强
+            if (isHttpUrl(this.rootUrl)) {
+              Button('在浏览器打开')
+                .fontSize(14)
+                .fontColor('#2D8CFA')
+                .backgroundColor('#1A2D8CFA')
+                .borderRadius(18)
+                .height(36)
+                .width(130)
+                .onClick(() => {
+                  Router.openExternal(this.rootUrl);
+                })
+            }
+          }
         }
         .width('100%')
         .height('100%')
@@ -1124,6 +1160,13 @@ class DshBridge {
   // 网页要打开附件：payload 为 {"u":"地址","n":"文件名"}
   onOpenFile(payload: string): void {
     this.fileCb(payload);
+  }
+
+  // 网页要求用外部浏览器打开（下载站、第三方系统登录等）
+  onOpenBrowser(url: string): void {
+    if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      Router.openExternal(url);
+    }
   }
 
   // 我的页“APP分享”：原版跳浏览器官方下载页
