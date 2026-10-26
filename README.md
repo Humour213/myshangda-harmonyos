@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.16-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.17-2D8CFA)
 
 ## 应用简介
 
@@ -102,16 +102,22 @@
 
 ## 更新说明
 
-### 0.2.16 — 2026-10-27
+### 0.2.17 — 2026-10-27
 
-- **原版样式底栏改成真·浮层沉浸**：底栏不再占布局，而是浮在网页上方（`barOverlap` +
-  `barFloatingStyle`），网页从底栏后面穿过，底栏下面露出的是网页本身，不再是窗口背景那块白。
-  0.2.15 那种「底部内边距 + 同色填充」的做法已撤掉。
-- **根因**：`barFloatingStyle` 的 `barWidth` 只接受具体数值（文档写明 cannot be set in percentage），
-  早先传的是 `'72%'`，属于非法值 → 整个浮动样式被忽略，底栏退回占位式，
-  `barBottomMargin` 也就一并失效（之前 12 / 24 / 90 三个值怎么调都没反应就是这个原因）。
-  现在按屏宽算出数值传进去（`classicBarWidth()`）。
-- 底栏离底 24vp（`CLASSIC_BAR_LIFT`），不再被系统手势条压住；左右留白 0，仍占满整行。
+- **原版样式的底栏回到「占满整行的一条」，不做胶囊**：0.2.16 用 `barOverlap` + 浮动样式把它变成了
+  悬浮药丸，观感跑偏，已撤回。现在仍是 `Tabs` 底部留 24vp（`CLASSIC_BAR_LIFT`）+ 底栏同色填充
+  （`CLASSIC_BAR_BG`），底栏高度、图标、配色与安卓 / iOS 端一致，也不会被手势条压住。
+- **原生样式真的沉浸了**：`HdsNavigation` 的 `expandSafeArea` 补上 `SafeAreaEdge.BOTTOM`
+  （原来只有 TOP）。内容不再止步于安全区上沿，而是一直铺到屏幕最下沿、从「沉浸光感」底栏后面穿过，
+  底栏下方不再是一条窗口白底。
+- 保留 0.2.15 的其余改动：原生样式下边距 6vp、原版样式底栏不滑动收起、选中态文字与图标同源翻转。
+
+### 0.2.16 — 已回滚（2026-10-27）
+
+- ~~原版样式底栏改成浮层沉浸~~：改动方向对，但观感变成「悬浮胶囊」，与原版不一致，0.2.17 已撤回。
+- **保留的结论**：`barFloatingStyle` 的 `barWidth` 只接受具体数值（文档写明 cannot be set in
+  percentage），传 `'72%'` 会让整个浮动样式被忽略、`barBottomMargin` 一并失效——这是之前
+  12 / 24 / 90 三个值怎么调都没反应的真正原因，以后要动浮层必须传数值。
 
 ### 0.2.15 — 2026-10-27
 
