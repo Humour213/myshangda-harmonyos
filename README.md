@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.14-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.13-2D8CFA)
 
 ## 应用简介
 
@@ -102,14 +102,11 @@
 
 ## 更新说明
 
-### 0.2.14 — 2026-10-27
+### 0.2.14 — 已回滚（2026-10-27）
 
-- **补上联系方式**：社区适配页填上维护者邮箱（`2496548066@qq.com`），点一下直接发信。
-- **修「原版 App 样式」的底栏被导航条压住**：该样式是真全屏沉浸，窗口不会替浮层底栏避让，
-  12vp 的离底距离正好落进系统手势条/导航条范围，底栏下沿被切掉一截。
-  现在底栏的离底距离里加上窗口底部避让区高度，底栏高度、图标、配色与安卓/iOS 端完全一致，
-  只是整体抬进安全区。避让区由 `EntryAbility` 用 `getMainWindowSync()` 同步读取后写入
-  AppStorage（页面里 `window.getLastWindow()` 的 promise 在真机上不 resolve，取不到值）。
+- ~~「原版 App 样式」的浮层底栏抬高避让导航条~~：真机观感反而偏离安卓/iOS 端，已整条撤销，
+  底栏离底距离回到 0.2.13 的 12vp（收起时 -180vp），`EntryAbility` 里的避让区读取一并移除。
+- **保留**：社区适配页填上维护者邮箱（`2496548066@qq.com`），点一下直接发信。
 
 ### 0.2.13 — 2026-10-27
 
