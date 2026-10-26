@@ -12,6 +12,10 @@ import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_
 import { Router, WebRegistry } from '../common/Nav';
 import { PrefsStore, SavedLogin } from '../common/PrefsStore';
 import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
+import { CardSync } from '../service/CardSync';
+import { Opener } from '../service/Opener';
+import { Scanner } from '../service/Scanner';
+import { Session } from '../service/Session';
 
 // 注意：hilog 非 0 域在该设备上被过滤，统一用 0x0000 域保证日志可见
 const DOMAIN = 0x0000;
@@ -23,6 +27,8 @@ export struct WebTab {
   @Prop rootUrl: string = '';
   @Prop needLogin: boolean = false;
   @Prop loadNow: boolean = false;
+  /** 首页 tab 打开：页面加载完后静默抓一次课表，供桌面卡片显示 */
+  @Prop scrapeSchedule: boolean = false;
   @Prop @Watch('onActiveChange') active: boolean = false;
   onScrollEvent: (y: number) => void = (_y: number) => {};
   onRouteEvent: (url: string) => void = (_url: string) => {};
@@ -38,6 +44,8 @@ export struct WebTab {
   @State offlineBanner: boolean = false;
   @State refreshing: boolean = false;
   @StorageLink('dsh_online') @Watch('onNetChange') online: boolean = true;
+  /** 重新登录成功后（退出登录 → 再登）由 Index 递增，触发所有 tab 重载拿到新会话 */
+  @StorageLink('dsh_relogin_ts') @Watch('onRelogin') reloginTs: number = 0;
   private showingOffline: boolean = false;
   private graceTimer: number = -1;
   private retryTimer: number = -1;
@@ -61,7 +69,10 @@ export struct WebTab {
     // 统一先在线加载，失败/超时才自动切离线缓存（goOffline）。
     this.bridge = new DshBridge(
       (y: number) => this.onScrollEvent(y),
-      (u: string) => this.onRouteEvent(u)
+      (u: string) => this.onRouteEvent(u),
+      () => this.requestLogout(),
+      () => this.doScan(),
+      (payload: string) => this.openFromWeb(payload)
     );
     this.dlDelegate = new webview.WebDownloadDelegate();
     this.dlDelegate.onBeforeDownload((item: webview.WebDownloadItem) => {
@@ -110,6 +121,78 @@ export struct WebTab {
     this.clearWatch();
     this.clearOfflineWatch();
     this.endRefresh();
+  }
+
+  // ===================== 网页桥过来的动作 =====================
+
+  /** 网页里点了「退出登录」：确认 → 清会话 → 回登录页 */
+  private requestLogout(): void {
+    Session.confirmAndClear();
+  }
+
+  /** 网页里点了扫码（子页面也必须能用，之前只做了主页顶栏） */
+  private async doScan(): Promise<void> {
+    const ctx = getContext(this) as common.UIAbilityContext;
+    const value: string = await Scanner.scan(ctx);
+    if (value === '') {
+      return;
+    }
+    // 优先把结果回给页面自己处理；页面没接就由原生兜底
+    const lit: string = JSON.stringify(value);
+    let handled: boolean = false;
+    try {
+      const r: string = await this.controller.runJavaScript(
+        `(function(){try{if(typeof window.__dshScanCallback==="function"){window.__dshScanCallback(${lit});return "cb";}` +
+        `if(typeof window.__dshScanResult==="function"){window.__dshScanResult(${lit});return "evt";}}catch(e){}return "none";})()`
+      ) as string;
+      handled = String(r).indexOf('cb') >= 0 || String(r).indexOf('evt') >= 0;
+    } catch (e) {
+      handled = false;
+    }
+    if (handled) {
+      return;
+    }
+    if (/^https?:\/\//i.test(value)) {
+      Router.openSub(value);
+    } else {
+      promptAction.showToast({ message: value, duration: 2500 });
+    }
+  }
+
+  /** 网页要打开一个文件/附件：H5 里只给地址，下载与预览由原生做 */
+  private openFromWeb(payload: string): void {
+    const ctx = getContext(this) as common.UIAbilityContext;
+    let url: string = '';
+    let name: string = '';
+    try {
+      const obj: Record<string, string> = JSON.parse(payload) as Record<string, string>;
+      url = obj['u'] ?? '';
+      name = obj['n'] ?? '';
+    } catch (e) {
+      // 老版本桥可能直接传地址
+      url = payload;
+    }
+    if (url === '') {
+      return;
+    }
+    hilog.info(DOMAIN, TAG, 'open from web %{public}s', url);
+    Opener.openSmart(ctx, url, name);
+  }
+
+  /** 退出后重新登录：所有 tab 重载，把新会话带到每个页面 */
+  onRelogin(): void {
+    if (this.reloginTs <= 0) {
+      return;
+    }
+    this.autoTries = 0;
+    this.creds.user = AppStorage.get<string>('dsh_session_user') ?? '';
+    this.creds.pass = AppStorage.get<string>('dsh_session_pass') ?? '';
+    this.showingOffline = false;
+    this.offlineBanner = false;
+    this.loaded = false;
+    this.errMsg = '';
+    this.showFallback = false;
+    this.reloadWithMode(CacheMode.Default);
   }
 
   onActiveChange(): void {
@@ -342,7 +425,9 @@ export struct WebTab {
 
   goOffline(): void {
     this.showingOffline = true;
-    this.offlineBanner = true;
+    // 只有真的没网才挂「离线缓存模式」提示。
+    // 有网但这一页打不开（权限、附件、站点异常）时误报离线，会把人带偏。
+    this.offlineBanner = !this.online;
     this.syncOfflineFlag();
     this.startRetryLoop();
     this.armOfflineWatch();
@@ -547,6 +632,21 @@ export struct WebTab {
             this.openSystem('ohos.want.action.sendData', u);
             return true;
           }
+          // 附件直链（pdf/doc/zip…）：交给原生下载 + 系统预览。
+          // 直接丢给 WebView 只会白屏或提示“无效的文件参数”，学生手册、校车时刻表都栽在这。
+          if (Opener.isAttachment(u)) {
+            hilog.info(DOMAIN, TAG, 'intercept attachment %{public}s', u);
+            Opener.openAttachment(getContext(this) as common.UIAbilityContext, u, '');
+            return true;
+          }
+          // 站外 / 自定义 scheme：交给系统，不要在 WebView 里报错
+          const lower: string = u.toLowerCase();
+          if (!(lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('about:') ||
+            lower.startsWith('data:') || lower.startsWith('blob:') || lower.startsWith('resource:') ||
+            lower.startsWith('file:'))) {
+            this.openSystem('ohos.want.action.viewData', u);
+            return true;
+          }
           return false;
         })
         .overScrollMode(this.active ? OverScrollMode.ALWAYS : OverScrollMode.NEVER)
@@ -568,7 +668,8 @@ export struct WebTab {
           try {
             this.controller.registerJavaScriptProxy(
               this.bridge, '__dshNative',
-              ['onScroll', 'onRoute', 'openWith', 'closePage', 'onShareApp', 'onCheckVersion', 'onJsBridge']
+              ['onScroll', 'onRoute', 'openWith', 'closePage', 'onShareApp', 'onCheckVersion', 'onJsBridge',
+                'onLogout', 'onScan', 'onOpenFile']
             );
           } catch (e) {
             hilog.error(DOMAIN, TAG, 'register proxy failed %{public}s', JSON.stringify(e));
@@ -627,7 +728,7 @@ export struct WebTab {
           // 缓存加载完成：继续后台探在线；在线加载完成：退出离线模式停止探测
           if (this.cacheMode === CacheMode.Only) {
             this.showingOffline = true;
-            this.offlineBanner = true;
+            this.offlineBanner = !this.online;
             this.startRetryLoop();
           } else {
             this.showingOffline = false;
@@ -690,6 +791,17 @@ export struct WebTab {
               this.controller.runJavaScript(SCHEDULE_FIX_JS);
             } catch (e) {
             }
+          }
+          // 首页：等页面把课表渲染完，静默抓一次写进缓存，桌面卡片与上课提醒都吃这份数据
+          if (this.scrapeSchedule && !this.loadFailed) {
+            setTimeout(() => {
+              const ctx = getContext(this) as common.UIAbilityContext;
+              CardSync.scrape(this.controller, ctx, true).then((ok: boolean) => {
+                if (ok) {
+                  hilog.info(DOMAIN, TAG, 'schedule synced to card');
+                }
+              });
+            }, 3500);
           }
         })
         .onErrorReceive((event) => {
@@ -794,7 +906,7 @@ export struct WebTab {
           SymbolGlyph($r('sys.symbol.icloud_slash'))
             .fontSize(14)
             .fontColor(['#8A8A8A'])
-          Text('离线缓存模式')
+          Text(this.online ? '本地缓存内容' : '离线缓存模式')
             .fontSize(12)
             .fontColor('#666666')
           Text('点击重连')
@@ -968,10 +1080,17 @@ export struct WebTab {
 class DshBridge {
   private scrollCb: (y: number) => void;
   private routeCb: (u: string) => void;
+  private logoutCb: () => void;
+  private scanCb: () => void;
+  private fileCb: (payload: string) => void;
 
-  constructor(scrollCb: (y: number) => void, routeCb: (u: string) => void) {
+  constructor(scrollCb: (y: number) => void, routeCb: (u: string) => void,
+    logoutCb: () => void, scanCb: () => void, fileCb: (payload: string) => void) {
     this.scrollCb = scrollCb;
     this.routeCb = routeCb;
+    this.logoutCb = logoutCb;
+    this.scanCb = scanCb;
+    this.fileCb = fileCb;
   }
 
   onScroll(y: number): void {
@@ -983,11 +1102,28 @@ class DshBridge {
   }
 
   openWith(url: string): void {
-    Router.openSub(url);
+    // H5 说“打开一个页面”，但给的可能是附件直链（学生手册/时刻表就是这种），
+    // 所以统一交给 Opener 判断：网页进子页、附件下载后预览、本地页走 rawfile。
+    Opener.openSmart(getContext() as common.UIAbilityContext, url, '');
   }
 
   closePage(): void {
     Router.pop();
+  }
+
+  // 网页里的「退出登录」/桥方法 exitLogin、logout、gotoLogin
+  onLogout(_msg: string): void {
+    this.logoutCb();
+  }
+
+  // 网页里的扫码（scan / scanCode / scanQRCode ...），子页面同样生效
+  onScan(_msg: string): void {
+    this.scanCb();
+  }
+
+  // 网页要打开附件：payload 为 {"u":"地址","n":"文件名"}
+  onOpenFile(payload: string): void {
+    this.fileCb(payload);
   }
 
   // 我的页“APP分享”：原版跳浏览器官方下载页

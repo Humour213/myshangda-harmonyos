@@ -13,6 +13,16 @@ export const OFFICIAL_APK_URL =
   'https://portal.zfsoft.com:6643/public/pkg/download/AE79A745A3C1779DE0538713470A4D9F';
 export const COMMUNITY_URL = 'https://sydxky.cn/';
 
+// ===== 社区适配版信息（关于 / 社区适配页展示） =====
+/** 应用分发页（下载站） */
+export const COMMUNITY_DOWNLOAD_URL = 'https://www.sydxky.cn/detail.php?id=1068';
+/** 本次合并所基于的开源仓库 */
+export const COMMUNITY_REPO_URL = 'https://anonymous.4open.science/r/myshangda-harmonyos-7AFE/';
+/** 上游 GitHub 仓库（作者 ZHOUcourrier） */
+export const COMMUNITY_UPSTREAM_URL = 'https://github.com/ZHOUcourrier/myshangda-harmonyos';
+/** 作者联系邮箱：域名部分请按实际补全，补全后本行注释可删 */
+export const COMMUNITY_EMAIL = 'minchincherrylips6@';
+
 // 门户 H5 只有在 UA 含 zfsoft 时才进入 App 分支（我的页会多出 App 专属菜单）
 export const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; HarmonyOS) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36 zfsoft_zjgs/7.1.25';

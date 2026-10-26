@@ -1,18 +1,30 @@
 import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE } from '../common/PrefsStore';
 import { webview } from '@kit.ArkWeb';
 import { promptAction } from '@kit.ArkUI';
-import { common, Want } from '@kit.AbilityKit';
+import { common, Want, bundleManager } from '@kit.AbilityKit';
 import { Router, BarUtil } from '../common/Nav';
 import { preferences } from '@kit.ArkData';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { ClassicHeader } from '../view/ClassicHeader';
 import { OFFICIAL_APK_URL, COMMUNITY_URL } from '../common/Constants';
+import { Session } from '../service/Session';
 
 // 设置页：恢复接手机前的鸿蒙原生分组列表样式
 // 组 1 原版 App 功能；组 2 通用工具；组 3 社区隐私与说明
 @Component
 export struct SettingsPage {
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  /** 版本号统一从包信息读，避免改版本还要手改界面文案 */
+  @State appVersion: string = '';
+
+  aboutToAppear(): void {
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      this.appVersion = `V${info.versionName}`;
+    } catch (e) {
+      this.appVersion = '';
+    }
+  }
 
   async doClearCache(): Promise<void> {
     try {
@@ -23,16 +35,9 @@ export struct SettingsPage {
   }
 
   async doLogout(): Promise<void> {
-    const ctx = getContext(this) as common.UIAbilityContext;
-    try {
-      webview.WebCookieManager.clearAllCookiesSync();
-    } catch (e) {
-    }
-    await PrefsStore.clearLogin(ctx);
+    // 不杀进程：清完会话由 Index 切回登录页，用户换个账号还能接着用
+    await Session.clearAll();
     promptAction.showToast({ message: '已退出登录', duration: 1500 });
-    setTimeout(() => {
-      ctx.terminateSelf();
-    }, 700);
   }
 
   openPermission(): void {
@@ -113,8 +118,8 @@ export struct SettingsPage {
         List({ space: 9 }) {
           // 组 1：原版 App 设置
           ListItemGroup() {
-            this.settingRow('版本检测', 'V0.1.3', () => {
-              promptAction.showToast({ message: '当前已是最新版本 V0.1.3', duration: 1800 });
+            this.settingRow('版本检测', this.appVersion, () => {
+              promptAction.showToast({ message: `当前已是最新版本 ${this.appVersion}`, duration: 1800 });
             })
             this.settingDivider()
             this.settingRow('APP分享', '', () => {
@@ -173,6 +178,11 @@ export struct SettingsPage {
             this.settingRow('社区适配声明', '', () => {
               Router.stack.pushPathByName('about', '', true);
             })
+            this.settingDivider()
+            // 下载站 / 开源仓库 / 作者联系方式都收在这一页
+            this.settingRow('下载与源码', '', () => {
+              Router.stack.pushPathByName('community', '', true);
+            })
           }
           .backgroundColor(Color.White)
           .borderRadius(12)
@@ -207,7 +217,7 @@ export struct SettingsPage {
                 .onClick(() => {
                   Router.openSub('https://beian.miit.gov.cn');
                 })
-              Text('我的商大 社区适配版 V0.1.3')
+              Text(`我的商大 社区适配版 ${this.appVersion}`)
                 .fontSize(12)
                 .fontColor('#ABABAB')
                 .width('100%')

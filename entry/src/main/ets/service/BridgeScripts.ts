@@ -1,4 +1,4 @@
-// 注入到每个页面的 document-start 脚本：滚动/路由桥接。
+// 注入到每个页面的 document-start 脚本：滚动/路由桥接 + 退出登录接管。
 // 优先使用 registerJavaScriptProxy 注入的 window.__dshNative；注册晚于脚本执行时先排队。
 export const PAGE_BRIDGE_JS = `(function(){
   // 页面 JS 异常转 console，方便 hilog 侧定位 H5 点击无反应的根因
@@ -44,6 +44,15 @@ export const PAGE_BRIDGE_JS = `(function(){
     onScroll: function(y){ send('onScroll', y); },
     onRoute: function(u){ send('onRoute', u); }
   };
+  // 供原生扫码完成后回传结果：H5 侧注册了回调就回调，同时派发自定义事件
+  window.__dshScanResult = function(text){
+    try {
+      window.dispatchEvent(new CustomEvent('dshscan', { detail: { text: text } }));
+    } catch (e) {}
+    if (typeof window.__dshScanCallback === 'function') {
+      try { window.__dshScanCallback(text); } catch (e) {}
+    }
+  };
   window.addEventListener('scroll', function(){
     try { window.__dshNav.onScroll(window.scrollY || document.documentElement.scrollTop || 0); } catch (e) {}
   }, { passive: true });
@@ -69,6 +78,67 @@ export const PAGE_BRIDGE_JS = `(function(){
     }
   }, 300);
   setTimeout(function(){ clearInterval(timer); }, 8000);
+
+  // ===== 退出登录接管 =====
+  // 门户「我的」页原本叫「身份切换」，点开是个抽屉，抽屉里还有一条会跳到二级首页的账号行。
+  // 这里做两件事：
+  //   1. 文案统一成「退出登录」，让用户知道点了会发生什么；
+  //   2. 捕获阶段拦下点击，交给原生清 Cookie 并回到登录页。
+  // 用事件委托而不是逐个绑定，抽屉是动态插入的也能命中。
+  try {
+    if (!window.__dshLogoutHooked) {
+      window.__dshLogoutHooked = true;
+      var norm = function(s){ return String(s || '').replace(/\\s/g, ''); };
+      var isLogoutText = function(t){
+        var n = norm(t);
+        if (n.length === 0 || n.length > 12) { return false; }
+        return n.indexOf('退出登录') >= 0 || n.indexOf('身份切换') >= 0 ||
+          n.indexOf('安全退出') >= 0 || n.indexOf('注销登录') >= 0;
+      };
+      document.addEventListener('click', function(e){
+        var t = e.target;
+        for (var k = 0; k < 5 && t && t !== document.documentElement; k++) {
+          if (isLogoutText(t.innerText)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+            send('onLogout', '');
+            return;
+          }
+          t = t.parentElement;
+        }
+      }, true);
+      var renamed = false;
+      var rename = function(){
+        if (renamed) { return; }
+        var els = document.querySelectorAll('div,span,a,li,button,p');
+        for (var i = 0; i < els.length; i++) {
+          if (els[i].children.length > 2) { continue; }
+          if (norm(els[i].innerText) === '身份切换') {
+            els[i].innerText = '退出登录';
+            renamed = true;
+            return;
+          }
+        }
+      };
+      setInterval(rename, 1200);
+      // 抽屉里那条「2507090113(本科生)」会把页面带去二级首页，不是用户想要的行为，直接吞掉
+      var acctPat = /^[0-9A-Za-z]{6,}\\s*[（(]\\s*(本科生|研究生|专科生|教职工|学生|教师)\\s*[)）]$/;
+      document.addEventListener('click', function(e){
+        var t = e.target;
+        for (var k = 0; k < 5 && t && t !== document.documentElement; k++) {
+          var tx = String(t.innerText || '').trim();
+          if (tx.length > 0 && tx.length < 30 && acctPat.test(tx)) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.stopImmediatePropagation) { e.stopImmediatePropagation(); }
+            return;
+          }
+          t = t.parentElement;
+        }
+      }, true);
+    }
+  } catch (e) {}
 })();`;
 
 // 离线数据缓存：在线时记录 GET 的 fetch/XHR 响应，离线时直接回放。
@@ -215,11 +285,35 @@ export const ANDROID_BRIDGE_JS = `(function(){
     pending.push([method, arg]);
     if (!timer) { timer = setTimeout(flush, 200); }
   }
-  function openWeb(title, url){
-    if (typeof url !== 'string' || !url) { return; }
-    try { url = new URL(url, location.href).href; } catch (e) {}
-    call('openWith', url);
+  function abs(url){
+    if (typeof url !== 'string' || !url) { return ''; }
+    // Android 壳里的本地页面路径，映射到鸿蒙的 rawfile 资源
+    if (url.indexOf('file:///android_asset/') === 0) {
+      return 'resource://rawfile/' + url.substring('file:///android_asset/'.length);
+    }
+    try { return new URL(url, location.href).href; } catch (e) { return url; }
   }
+  function openWeb(title, url){
+    var u = abs(url);
+    if (!u) { return; }
+    call('openWith', u);
+  }
+  // 附件类：H5 只传 url（或 url + 文件名），原生负责下载并按类型预览。
+  // 学生手册、校车时刻表这类条目走的就是这条路径，缺了它 H5 只会提示“无效的文件参数”。
+  function openFile(url, name){
+    var u = abs(url);
+    if (!u) { return; }
+    var payload = { u: u, n: (typeof name === 'string' ? name : '') };
+    try { call('onOpenFile', JSON.stringify(payload)); } catch (e) {}
+  }
+  function scan(cb){
+    if (typeof cb === 'function') {
+      window.__dshScanCallback = cb;
+      try { window.__dshScanCallbackName = 'cb'; } catch (e) {}
+    }
+    call('onScan', '');
+  }
+  window.__dshSetScanCallback = function(cb){ if (typeof cb === 'function') { window.__dshScanCallback = cb; } };
   var bridge = {
     openWeb: function(title, url){ openWeb(title, url); },
     openWebWithRefresh: function(title, url){ openWeb(title, url); },
@@ -233,8 +327,24 @@ export const ANDROID_BRIDGE_JS = `(function(){
     APPShare: function(){ call('onShareApp', ''); },
     checkVersion: function(){ call('onCheckVersion', ''); },
     createCalendar: function(){},
-    exitLogin: function(){},
-    gotoLogin: function(){},
+    // 退出登录：由原生清 Cookie、清本地凭据并回到登录页
+    exitLogin: function(){ call('onLogout', ''); },
+    logout: function(){ call('onLogout', ''); },
+    signOut: function(){ call('onLogout', ''); },
+    // 扫码：多类别名，覆盖不同版本 H5 的写法
+    scan: function(cb){ scan(cb); },
+    scanCode: function(cb){ scan(cb); },
+    scanQRCode: function(cb){ scan(cb); },
+    startScan: function(cb){ scan(cb); },
+    openScan: function(cb){ scan(cb); },
+    // 文件/附件
+    openFile: function(url, name){ openFile(url, name); },
+    previewFile: function(url, name){ openFile(url, name); },
+    openDocument: function(url, name){ openFile(url, name); },
+    openAttachment: function(url, name){ openFile(url, name); },
+    downLoadFile: function(url, name){ openFile(url, name); },
+    downloadFile: function(url, name){ openFile(url, name); },
+    gotoLogin: function(){ call('onLogout', ''); },
     setBadge: function(){},
     updateBadgeNew: function(){}
   };

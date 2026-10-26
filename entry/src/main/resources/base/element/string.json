@@ -23,6 +23,10 @@
     {
       "name": "reason_location",
       "value": "用于提供与位置相关的校园服务"
+    },
+    {
+      "name": "form_desc",
+      "value": "桌面课表卡片"
     }
   ]
 }

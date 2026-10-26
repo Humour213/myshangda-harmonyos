@@ -12,6 +12,11 @@ export function consumeTargetUrl(want: Want | undefined): void {
   if (uri && isHttpUrl(uri)) {
     AppStorage.setOrCreate('dsh_targetUrl', uri);
   }
+  // 桌面课表卡片点击：postCardAction 带过来的是 tab，直接落到对应底栏
+  const tab = (want?.parameters?.tab ?? '') as string;
+  if (tab !== '') {
+    AppStorage.setOrCreate('dsh_targetTab', tab);
+  }
   const sc = (want?.parameters?.shortcut ?? '') as string;
   if (sc !== '') {
     const map: Record<string, string> = {

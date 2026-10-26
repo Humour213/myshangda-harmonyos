@@ -3,14 +3,22 @@ import { BarUtil } from '../common/Nav';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { ClassicHeader } from '../view/ClassicHeader';
 import { NAV_STYLE_CLASSIC } from '../common/PrefsStore';
-
-
-const APP_VERSION = 'V0.1.3';
+import { bundleManager } from '@kit.AbilityKit';
 
 @Component
 export struct AboutPage {
   @State url: string = '';
+  @State appVersion: string = '';
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+
+  aboutToAppear(): void {
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      this.appVersion = `社区适配版 V${info.versionName}`;
+    } catch (e) {
+      this.appVersion = '社区适配版';
+    }
+  }
 
   build() {
     HdsNavDestination() {
@@ -35,7 +43,7 @@ export struct AboutPage {
                 .fontSize(20)
                 .fontWeight(FontWeight.Bold)
                 .fontColor('#222222')
-              Text(`社区适配版 ${APP_VERSION}`)
+              Text(this.appVersion)
                 .fontSize(12)
                 .fontColor('#999999')
             }
@@ -60,9 +68,9 @@ export struct AboutPage {
                 .fontSize(16)
                 .fontWeight(FontWeight.Medium)
                 .fontColor('#222222')
-              this.bullet('本应用不收集、不上传、不存储您的任何个人信息；开发者与任何第三方均无法获取您的数据。')
-              this.bullet('您的统一身份认证账号与密码仅加密保存在本机，仅用于自动登录学校官方门户，可随时在本机清除。')
-              this.bullet('课表、成绩、校园卡等全部业务均由本应用直接与学校官方系统交互，本应用不篡改、不中转、不留存任何通信数据。')
+              this.bullet('本应用不收集、不上传您的个人信息；登录凭据与页面缓存仅保存在本机，开发者与任何第三方均无法获取。')
+              this.bullet('您的统一身份认证账号与密码仅保存在本机应用私有存储中，仅用于自动登录学校官方门户，可随时在本机清除。')
+              this.bullet('课表、成绩、校园卡等全部业务均由本应用直接与学校官方系统交互，本应用不篡改、不中转任何通信数据。')
               this.bullet('本应用不包含任何统计、广告或跟踪组件。')
             }
             .width('100%')
@@ -83,7 +91,20 @@ export struct AboutPage {
             Text('继续使用即表示您已阅读并同意以上说明')
               .fontSize(11)
               .fontColor('#AAAAAA')
-              .margin({ top: 6, bottom: 20 })
+              .margin({ top: 6 })
+
+            Row() {
+              Text('下载与源码、联系作者')
+                .fontSize(13)
+                .fontColor('#2D8CFA')
+              Text(' >')
+                .fontSize(13)
+                .fontColor('#2D8CFA')
+            }
+            .margin({ top: 4, bottom: 20 })
+            .onClick(() => {
+              Router.stack.pushPathByName('community', '', true);
+            })
           }
           .padding({ left: 20, right: 20 })
           .constraintSize({ minWidth: '100%' })

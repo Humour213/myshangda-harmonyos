@@ -6,6 +6,7 @@ import { AboutPage } from './AboutPage';
 import { NativeApi } from '../common/NativeApi';
 import { GuidePage } from './GuidePage';
 import { SettingsPage, SettingSubPage } from './SettingsPage';
+import { CommunityPage } from './CommunityPage';
 import { HdsTabs, HdsNavigation, HdsNavigationMenuItemOptions, HdsNavigationTitleMode, hdsMaterial } from '@kit.UIDesignKit';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC } from '../common/PrefsStore';
@@ -53,9 +54,15 @@ struct Index {
   @State showPrivacy: boolean = false;
   private privacySuspended: boolean = false;
   private privacyWatchTimer: number = -1;
+  /** 本次是「退出登录后再登」，登录成功需要重载所有 tab */
+  private wasLoggedOut: boolean = false;
   private netConn: connection.NetConnection | undefined = undefined;
   @StorageLink('dsh_targetUrl') @Watch('onTargetUrl') targetUrl: string = '';
   @StorageLink('dsh_session_ready') @Watch('onSessionReady') sessionReadyTs: number = 0;
+  /** 网页里点了退出登录：清完会话后 Index 负责切回登录页 */
+  @StorageLink('dsh_logout_ts') @Watch('onLogoutDone') logoutTs: number = 0;
+  /** 桌面卡片点进来要落的 tab */
+  @StorageLink('dsh_targetTab') @Watch('onTargetTab') targetTab: string = '';
 
   setupNotifications(): void {
     try {
@@ -132,6 +139,32 @@ struct Index {
     });
   }
 
+  /**
+   * 退出登录完成（网页桥或设置页触发）。
+   * 关掉所有子页、清空输入，回到登录页，不杀进程——用户还想换账号接着用。
+   */
+  onLogoutDone(): void {
+    if (this.logoutTs <= 0) {
+      return;
+    }
+    if (Router.stack.size() > 0) {
+      try {
+        Router.stack.clear();
+      } catch (e) {
+        while (Router.stack.size() > 0) {
+          Router.pop();
+        }
+      }
+    }
+    this.gateUser = '';
+    this.gatePass = '';
+    this.gateBusy = false;
+    this.agreeTerms = true;
+    this.wasLoggedOut = true;
+    this.needGate = true;
+    this.applyWindowStyle();
+  }
+
   onTargetUrl(): void {
     if (this.targetUrl && !this.gateLoading && !this.needGate) {
       if (this.targetUrl === 'dsh://scan') {
@@ -140,6 +173,20 @@ struct Index {
         Router.openSub(this.targetUrl);
       }
       AppStorage.set('dsh_targetUrl', '');
+    }
+  }
+
+  /** 桌面卡片点进来：切到对应底栏（课表卡片落在主页） */
+  onTargetTab(): void {
+    if (this.targetTab === '') {
+      return;
+    }
+    const idx: number = parseInt(this.targetTab);
+    AppStorage.set('dsh_targetTab', '');
+    if (!isNaN(idx) && idx >= 0 && idx < this.tabs.length) {
+      setTimeout(() => {
+        this.switchTab(idx, true);
+      }, 260);
     }
   }
 
@@ -516,6 +563,11 @@ struct Index {
       await PrefsStore.clearLogin(ctx);
     }
     this.gateBusy = false;
+    // 从「退出登录」回来再登：让所有已挂载的 tab 重载，拿到新会话
+    if (this.wasLoggedOut) {
+      this.wasLoggedOut = false;
+      AppStorage.setOrCreate('dsh_relogin_ts', Date.now());
+    }
     this.needGate = false;
     this.syncStatusBar();
     // 首次登录成功后也执行「首页自动打开应用」，避免只在冷启动已登录时生效
@@ -546,6 +598,8 @@ struct Index {
       SettingsPage()
     } else if (name === 'setting_sub') {
       SettingSubPage()
+    } else if (name === 'community') {
+      CommunityPage()
     }
   }
 
@@ -888,6 +942,7 @@ struct Index {
       tabId: `tab-${tab.id}`,
       rootUrl: tab.url,
       needLogin: true,
+      scrapeSchedule: idx === 2,
       active: this.currentTab === idx,
       onScrollEvent: (y: number) => {
         if (Router.stack.size() > 0) {
