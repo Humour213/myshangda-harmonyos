@@ -45,6 +45,10 @@
 | :---: | :---: | :---: |
 | <img src="docs/promo/promo-features-4x3.jpg" width="280" /> | <img src="docs/promo/promo-offline-4x3.jpg" width="280" /> | <img src="docs/promo/promo-privacy-4x3.jpg" width="280" /> |
 
+| 鸿蒙原生适配 | 原生 / 经典双外观 |
+| :---: | :---: |
+| <img src="docs/promo/promo-harmony-4x3.jpg" width="420" /> | <img src="docs/promo/promo-dual-style-4x3.jpg" width="420" /> |
+
 ## 应用特色
 
 ### 原生外壳，网页内核
