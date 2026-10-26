@@ -589,12 +589,13 @@ export struct WebTab {
 
   build() {
     Stack() {
-      // 下拉刷新的手感拆成两个互不干扰的参数（friction 已被 pullDownRatio 取代）：
-      //   refreshOffset = 下拉多少距离算触发，也就是**刷新时顶部被撑开的空白高度**；
-      //   pullDownRatio = 跟手比，内容位移 = 手指位移 × ratio，值越小越"拉不动"。
-      // 想让空白变少就得把 refreshOffset 调矮，但光调矮会变得一碰就刷新，
-      // 所以同时把 ratio 压到 0.55：要拉到 64 / 0.55 ≈ 116vp 才触发，手感和原来 112vp 一致，
-      // 但顶上只留 64vp 空白（原来 112vp），视觉上不再是大白块。
+      // 下拉刷新的三个参数各管一件事，别混：
+      //   refreshOffset        下拉多少距离算触发（也是刷新态顶部被撑开的空白高度）
+      //   pullDownRatio        跟手比：内容位移 = 手指位移 × ratio，越小越"拉不动"
+      //   maxPullDownDistance  **拉伸上限**，不给就会一直跟着手指走，快速下甩还会因惯性过冲
+      // 另外网页自身还会在顶部做 overscroll 回弹（见下面 Web 的 overScrollMode 注释），
+      // 那一段不归 Refresh 管，会再叠出上百 vp 的空白，必须一起关掉——只调这三个参数治不好。
+      // 现在的取舍：拉 64 / 0.55 ≈ 116vp 触发（和原来 112 的手感一致），白区最多只到 88vp。
       Refresh({ refreshing: $$this.refreshing }) {
         Web({ src: this.rootUrl, controller: this.controller })
         .width('100%')
@@ -676,7 +677,11 @@ export struct WebTab {
           }
           return false;
         })
-        .overScrollMode(this.active ? OverScrollMode.ALWAYS : OverScrollMode.NEVER)
+        // 必须恒为 NEVER：Web 套在 Refresh 里属于嵌套滚动，网页滚到顶部会优先吃掉手势做
+        // overscroll 回弹（官方文档原文），那一段回弹不归 Refresh 管，会在原生白区之上再撑出
+        // 上百 vp 的空白——"轻轻下拉就一大片白"就是这么来的。以前给 active 的 Tab 开 ALWAYS，
+        // 正是把这块空白打开的开关。
+        .overScrollMode(OverScrollMode.NEVER)
         // document-start 的空桥 stub 必须先在：zfsoft/CAS 的 app-UA 分支启动时就会调桥，
         // 缺 stub 会永远停在“加载中”转圈（旧版本正常、近期回归的根因）。
         // rules 限定业务域，避免波及 rawfile 等本地页（曾因此白屏）
@@ -929,6 +934,7 @@ export struct WebTab {
       .width('100%')
       .refreshOffset(64)
       .pullDownRatio(0.55)
+      .maxPullDownDistance(88)
       .onRefreshing(() => {
         this.startRefresh();
       })
