@@ -126,6 +126,28 @@ struct ScheduleLarge {
     .padding({ top: 4, bottom: 4 })
   }
 
+  /**
+   * 卡片不支持 heightAdaptivePolicy，所以自己估一个字号：
+   * 汉字按 1em、ASCII 按 0.55em 估宽度，能一行放下就用最大字号，放不下逐级缩到 min。
+   */
+  private nameSize(max: number, min: number, boxW: number): number {
+    let w: number = 0;
+    for (let i = 0; i < this.heroName.length; i++) {
+      w += this.heroName.charCodeAt(i) > 127 ? 1 : 0.55;
+    }
+    if (w <= 0) {
+      return max;
+    }
+    let s: number = Math.floor(boxW / w);
+    if (s > max) {
+      s = max;
+    }
+    if (s < min) {
+      s = min;
+    }
+    return s;
+  }
+
   build() {
     Column() {
       // 卡片抬头：左边日期，右边今天上完了没
@@ -160,10 +182,10 @@ struct ScheduleLarge {
         .width('100%')
 
         Text(this.heroName)
-          .fontSize(20)
+          .fontSize(this.nameSize(20, 14, 150))
           .fontWeight(FontWeight.Medium)
           .fontColor('#10141A')
-          .maxLines(2)
+          .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
           .margin({ top: 5 })
@@ -217,6 +239,8 @@ struct ScheduleLarge {
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.None)
+      .borderRadius({ bottomLeft: 18, bottomRight: 18 })
+      .clip(true)
 
     }
     .width('100%')

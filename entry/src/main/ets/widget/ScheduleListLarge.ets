@@ -162,6 +162,8 @@ struct ScheduleListLarge {
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.None)
+      .borderRadius({ bottomLeft: 16, bottomRight: 16 })
+      .clip(true)
     }
     .width('100%')
     .height('100%')

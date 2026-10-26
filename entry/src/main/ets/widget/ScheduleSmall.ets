@@ -102,6 +102,28 @@ struct ScheduleSmall {
     .width('100%')
   }
 
+  /**
+   * 卡片不支持 heightAdaptivePolicy，所以自己估一个字号：
+   * 汉字按 1em、ASCII 按 0.55em 估宽度，能一行放下就用最大字号，放不下逐级缩到 min。
+   */
+  private nameSize(max: number, min: number, boxW: number): number {
+    let w: number = 0;
+    for (let i = 0; i < this.heroName.length; i++) {
+      w += this.heroName.charCodeAt(i) > 127 ? 1 : 0.55;
+    }
+    if (w <= 0) {
+      return max;
+    }
+    let s: number = Math.floor(boxW / w);
+    if (s > max) {
+      s = max;
+    }
+    if (s < min) {
+      s = min;
+    }
+    return s;
+  }
+
   build() {
     Column() {
       // 主视觉：全卡唯一一张白卡，"此刻"的答案就落在这里
@@ -120,10 +142,10 @@ struct ScheduleSmall {
         .width('100%')
 
         Text(this.heroName)
-          .fontSize(17)
+          .fontSize(this.nameSize(17, 12, 136))
           .fontWeight(FontWeight.Medium)
           .fontColor('#10141A')
-          .maxLines(2)
+          .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
           .margin({ top: 2 })
@@ -167,16 +189,25 @@ struct ScheduleSmall {
       .borderRadius(11)
       .alignItems(HorizontalAlign.Start)
 
-      // 下下节：只放一条，且保证是完整的一个课时，宁可少放也不截半
-      Column() {
-        if (this.off() < 8 && this.fn(this.off()).length > 0) {
-          this.nextCourse(this.off())
-        }
+      // 下下节及以后：可以滑，行高固定 30vp 且滚动结束后吸附到行首，
+      // 底部按卡片的圆角裁切，切边是弧线而不是一条直线
+      List({ space: 4 }) {
+        ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
+          if (i + this.off() < 8 && this.fn(i + this.off()).length > 0) {
+            ListItem() {
+              this.nextCourse(i + this.off())
+            }
+            .height(30)
+          }
+        }, (i: number) => String(i))
       }
       .width('100%')
       .layoutWeight(1)
       .padding({ top: 8 })
-      .alignItems(HorizontalAlign.Start)
+      .scrollBar(BarState.Off)
+      .edgeEffect(EdgeEffect.None)
+      .borderRadius({ bottomLeft: 16, bottomRight: 16 })
+      .clip(true)
     }
     .width('100%')
     .height('100%')
