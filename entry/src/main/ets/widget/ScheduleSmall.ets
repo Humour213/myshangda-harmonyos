@@ -10,6 +10,7 @@ struct ScheduleSmall {
   @LocalStorageProp('state') state: string = 'none';
   @LocalStorageProp('status') status: string = '';
   @LocalStorageProp('detail') detail: string = '';
+  @LocalStorageProp('tmLabel') tmLabel: string = '';
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
   @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('b0') b0: string = '';
@@ -123,7 +124,7 @@ struct ScheduleSmall {
         Text(this.date)
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#1A1A1A')
+          .fontColor(this.state === 'tomorrow' ? '#2E4A7D' : '#1A1A1A')
         Text(' ' + this.weekday)
           .fontSize(11)
           .fontColor('#8A8F98')
@@ -143,7 +144,8 @@ struct ScheduleSmall {
         Text(this.status)
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'done' || this.state === 'none' ? '#8A8F98' : '#1E63B4')
+          .fontColor(this.state === 'done' || this.state === 'none' || this.state === 'tomorrow'
+            ? '#8A8F98' : '#1E63B4')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -151,7 +153,20 @@ struct ScheduleSmall {
       .width('100%')
       .padding({ left: 12, right: 12, bottom: 2 })
 
-      if (this.detail.length > 0) {
+      // 「明天」分组标签：紧贴列表上沿，指代清楚，不用把"明天"塞进状态句
+      if (this.state === 'tomorrow' && this.tmLabel.length > 0) {
+        Row() {
+          Text(this.tmLabel)
+            .fontSize(10)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#3A568C')
+            .padding({ left: 7, right: 7, top: 2, bottom: 2 })
+            .backgroundColor('#DCE5F8')
+            .borderRadius(6)
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 4 })
+      } else if (this.detail.length > 0) {
         Text(this.detail)
           .fontSize(10)
           .fontColor('#8A8F98')
@@ -183,7 +198,8 @@ struct ScheduleSmall {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    // 今天的课结束后整卡换底色（淡靛蓝），和"今天还剩课"的白色明确区分
+    .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
     .onClick(() => {
       postCardAction(this, {
         action: 'router',

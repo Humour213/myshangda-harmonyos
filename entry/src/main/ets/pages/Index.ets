@@ -859,8 +859,10 @@ struct Index {
                 TabContent() {
                   this.webTabFor(tab, idx)
                 }
+                // 选中：实心图标 + 近黑文字；未选中：线框图标 + 中灰文字。
+                // 图标为 96px 位图（原 40px 在 3x 屏上被放大 1.8 倍，必然发虚）。
                 .tabBar(BottomTabBarStyle.of(this.currentTab === idx ? tab.iconOn : tab.iconOff, tab.label)
-                  .labelStyle({ selectedColor: '#1A1A1A', unselectedColor: '#1A1A1A' }))
+                  .labelStyle({ selectedColor: '#1A1A1A', unselectedColor: '#9BA0A8' }))
               }, (tab: TabDef) => `${tab.id}`)
             }
             .barOverlap(true)

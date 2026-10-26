@@ -34,6 +34,15 @@ export const TAB_CONTACT = 3;
 export const TAB_MSG = 4;
 export const TAB_ME = 5;
 
+/**
+ * 底栏 Tab 定义。
+ *
+ * 图标有两套：
+ *   iconOn/iconOff         —— HDS 悬浮底栏用，选中近黑实心 / 未选中中灰线框
+ *   iconOnClassic/...      —— 原版样式（蓝色悬浮胶囊）用，选中品牌蓝 / 未选中浅灰
+ * 一律 96×96 px（底栏按 24vp 渲染，3x 屏要 72px，位图小于该值会发虚）。
+ * 选中/未选中必须形状不同（实心 vs 线框），不能只靠颜色区分。
+ */
 export class TabDef {
   id: number = 0;
   label: string = '';

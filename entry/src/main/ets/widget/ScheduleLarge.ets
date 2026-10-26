@@ -11,6 +11,7 @@ struct ScheduleLarge {
   @LocalStorageProp('status') status: string = '';
   @LocalStorageProp('detail') detail: string = '';
   @LocalStorageProp('summary') summary: string = '';
+  @LocalStorageProp('tmLabel') tmLabel: string = '';
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
   @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('b0') b0: string = '';
@@ -126,7 +127,7 @@ struct ScheduleLarge {
         Text(this.date)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#1A1A1A')
+          .fontColor(this.state === 'tomorrow' ? '#2E4A7D' : '#1A1A1A')
         Text(' ' + this.weekday)
           .fontSize(12)
           .fontColor('#8A8F98')
@@ -150,7 +151,8 @@ struct ScheduleLarge {
         Text(this.status)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'done' ? '#8A8F98' : '#1E63B4')
+          .fontColor(this.state === 'done' || this.state === 'none' || this.state === 'tomorrow'
+            ? '#8A8F98' : '#1E63B4')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -158,7 +160,20 @@ struct ScheduleLarge {
       .width('100%')
       .padding({ left: 14, right: 14 })
 
-      if (this.detail.length > 0) {
+      // 「明天」分组标签：作为列表的小标题，而不是塞进状态句里
+      if (this.state === 'tomorrow' && this.tmLabel.length > 0) {
+        Row() {
+          Text(this.tmLabel)
+            .fontSize(11)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#3A568C')
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+            .backgroundColor('#DCE5F8')
+            .borderRadius(7)
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 7 })
+      } else if (this.detail.length > 0) {
         Text(this.detail)
           .fontSize(11)
           .fontColor('#8A8F98')
@@ -189,7 +204,7 @@ struct ScheduleLarge {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#FFFFFF')
+    .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
     .onClick(() => {
       postCardAction(this, {
         action: 'router',

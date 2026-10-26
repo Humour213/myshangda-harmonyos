@@ -9,12 +9,17 @@ import { parseSchedule } from '../service/ScheduleParse';
 class CardData {
   date: string = '';
   weekday: string = '';
-  /** now=上课中 / next=课间 / done=已上完 / none=今天没课 */
+  /** now=上课中 / next=课间 / done=已上完 / none=今天没课 / tomorrow=明天预告 */
   state: string = 'none';
   status: string = '';
   /** 副标题：现在/下一节的时间地点 */
   detail: string = '';
   summary: string = '';
+  /** 明天预告：分组标签（「明天 · 共 3 节」）、第一节时间/课名/地点 */
+  tmLabel: string = '';
+  tmTime: string = '';
+  tmName: string = '';
+  tmPlace: string = '';
   t0: string = ''; n0: string = ''; p0: string = ''; b0: string = ''; f0: string = '';
   t1: string = ''; n1: string = ''; p1: string = ''; b1: string = ''; f1: string = '';
   t2: string = ''; n2: string = ''; p2: string = ''; b2: string = ''; f2: string = '';
@@ -41,14 +46,21 @@ const BG: string[] = ['#D6E9FF', '#D6F5EA', '#D6E4FF', '#FFE7D1', '#E3DDFF',
 const FG: string[] = ['#1E63B4', '#12806A', '#2B57C6', '#B4531A', '#5A3EBA',
   '#3F7A22', '#B02A2A', '#8A5B00'];
 
+/** 明天预告用同一套靛蓝色，整组是"同一块内容"，不再是一条条彩色卡片 */
+const TM_BG: string = '#E5EBFA';
+const TM_FG: string = '#3A568C';
+
 /**
  * 课表桌面卡片的数据提供者（小卡 2×2、大卡 2×4 共用）。
  *
  * 语义：
  *   - 上课中：status = 「上课中 · 课程名」
  *   - 课间：  status = 「下节 13:30 综合商务英语(3)」
- *   - 上完：  status = 「今天的课上完了，休息吧」
- *   - 没课：  status = 「今天没有课」
+ *   - 今天结束：state = tomorrow，status = 「今天的课上完了」，
+ *               tmLabel = 「明天 · 共 3 节」，列表整块换成明天的课
+ *               （卡片背景同时换成淡靛蓝，见 ScheduleSmall/Large）
+ *   - 完成：  state = done，status = 「今天的课上完了，休息吧」
+ *   - 没课：  state = none，status = 「今天没有课」
  * 列表里只放「还没上完」的课，上完一节就少一条。
  */
 export default class ScheduleCardAbility extends FormExtensionAbility {
@@ -87,6 +99,11 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       const txt: string = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buf));
       const s: ScheduleData = parseSchedule(txt);
       const today: number = this.todayIndex();
+      // 周末不预告"明天"（周六的明天是周日、周日的明天是周一，容易误导）
+      if (today < 0) {
+        d.summary = '好好休息';
+        return d;
+      }
       const todayList: CourseItem[] = [];
       for (let i = 0; i < s.courses.length; i++) {
         if (s.courses[i].day === today) {
@@ -95,6 +112,10 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       }
       todayList.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
       if (todayList.length === 0) {
+        // 今天整天没课：直接把明天预告顶上来，总比一句"今天没有课"有用
+        if (this.fillTomorrow(d, s, today, '今天没有课')) {
+          return d;
+        }
         d.summary = '好好休息';
         return d;
       }
@@ -124,17 +145,16 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         d.status = `下节 ${this.timeRange(nxt.start, nxt.span).substring(0, 5)} ${nxt.name}`;
         d.detail = `${nxt.place}`;
       } else {
-        // 今天的课上完了：如果明天还有课，直接告诉用户明天第一节
-        const tomorrow: CourseItem | null = this.firstCourseOf(s, this.tomorrowIndex(today));
-        if (tomorrow !== null) {
-          d.state = 'next';
-          d.status = `明天 ${this.timeRange(tomorrow.start, tomorrow.span).substring(0, 5)} ${tomorrow.name}`;
-          d.detail = `${tomorrow.place}`;
-        } else {
-          d.state = 'done';
-          d.status = '今天的课上完了，休息吧';
-          d.detail = '';
+        // 今天的课上完了：整张卡切到"明天预告"，而不是把明天的课混进今天的列表
+        const totalAll: number = todayList.length;
+        if (this.fillTomorrow(d, s, today, '今天的课上完了')) {
+          return d;
         }
+        d.state = 'done';
+        d.status = '今天的课上完了，休息吧';
+        d.detail = '';
+        d.summary = `共 ${totalAll} 节 · 全部上完`;
+        return d;
       }
 
       const total: number = todayList.length;
@@ -173,6 +193,41 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     }
   }
 
+  /**
+   * 把卡片切到"明天预告"：状态行保留今天的结论，明天整组课改由一个
+   * 标签（tmLabel）引领，列表块统一用靛蓝色，视觉上和"今天的剩余课程"
+   * 明确区分开，不会显得突兀。
+   *
+   * @returns 明天确实有课才返回 true
+   */
+  private fillTomorrow(d: CardData, s: ScheduleData, today: number, status: string): boolean {
+    const day: number = this.tomorrowIndex(today);
+    const list: CourseItem[] = [];
+    for (let i = 0; i < s.courses.length; i++) {
+      if (s.courses[i].day === day) {
+        list.push(s.courses[i]);
+      }
+    }
+    if (list.length === 0) {
+      return false;
+    }
+    list.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
+    const first: CourseItem = list[0];
+    d.state = 'tomorrow';
+    d.status = status;
+    d.detail = '';
+    d.summary = '';
+    d.tmLabel = `明天 · 共 ${list.length} 节`;
+    d.tmTime = this.timeRange(first.start, first.span).substring(0, 5);
+    d.tmName = first.name;
+    d.tmPlace = first.place;
+    for (let i = 0; i < list.length && i < 8; i++) {
+      const c: CourseItem = list[i];
+      this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, TM_BG, TM_FG);
+    }
+    return true;
+  }
+
   private setSlot(d: CardData, i: number, t: string, n: string, p: string, bg: string, fg: string): void {
     if (i === 0) {
       d.t0 = t; d.n0 = n; d.p0 = p; d.b0 = bg; d.f0 = fg;
@@ -200,21 +255,6 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       return 0;
     }
     return today >= 4 ? 0 : today + 1;
-  }
-
-  /** 取某一天的课里最早的一节 */
-  private firstCourseOf(s: ScheduleData, day: number): CourseItem | null {
-    let best: CourseItem | null = null;
-    for (let i = 0; i < s.courses.length; i++) {
-      const c: CourseItem = s.courses[i];
-      if (c.day !== day) {
-        continue;
-      }
-      if (best === null || c.start < best.start) {
-        best = c;
-      }
-    }
-    return best;
   }
 
   private startMinutes(c: CourseItem): number {
