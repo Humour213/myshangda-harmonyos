@@ -35,7 +35,7 @@ struct ScheduleTiny {
   private nameSize(max: number, min: number, boxW: number): number {
     let w: number = 0;
     for (let i = 0; i < this.heroName.length; i++) {
-      w += this.heroName.charCodeAt(i) > 127 ? 1 : 0.55;
+      w += this.heroName.charCodeAt(i) > 127 ? 1.05 : 0.56;
     }
     if (w <= 0) {
       return max;
@@ -65,17 +65,18 @@ struct ScheduleTiny {
             .fontSize(9)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.accent)
-          Blank()
           Text(this.tp())
             .fontSize(10)
             .fontColor('#8A91A0')
             .maxLines(1)
+            .textAlign(TextAlign.End)
+            .layoutWeight(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .width('100%')
 
         Text(this.heroName)
-          .fontSize(this.nameSize(15, 12, 140))
+          .fontSize(this.nameSize(15, 12, 138))
           .fontWeight(FontWeight.Medium)
           .fontColor(this.ink)
           .maxLines(1)

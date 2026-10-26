@@ -109,7 +109,7 @@ struct ScheduleSmall {
   private nameSize(max: number, min: number, boxW: number): number {
     let w: number = 0;
     for (let i = 0; i < this.heroName.length; i++) {
-      w += this.heroName.charCodeAt(i) > 127 ? 1 : 0.55;
+      w += this.heroName.charCodeAt(i) > 127 ? 1.05 : 0.56;
     }
     if (w <= 0) {
       return max;
@@ -142,7 +142,7 @@ struct ScheduleSmall {
         .width('100%')
 
         Text(this.heroName)
-          .fontSize(this.nameSize(17, 12, 136))
+          .fontSize(this.nameSize(17, 12, 132))
           .fontWeight(FontWeight.Medium)
           .fontColor('#10141A')
           .maxLines(1)
