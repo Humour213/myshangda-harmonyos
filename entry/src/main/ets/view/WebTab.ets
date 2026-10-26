@@ -1119,28 +1119,6 @@ export struct WebTab {
       event.result.handleFileList([]);
     });
   }
-}
-
-// 注册进 WebView 的原生桥（window.__dshNative）
-class DshBridge {
-  private scrollCb: (y: number) => void;
-  private routeCb: (u: string) => void;
-  private logoutCb: () => void;
-  private scanCb: () => void;
-  private fileCb: (payload: string) => void;
-
-  constructor(scrollCb: (y: number) => void, routeCb: (u: string) => void,
-    logoutCb: () => void, scanCb: () => void, fileCb: (payload: string) => void) {
-    this.scrollCb = scrollCb;
-    this.routeCb = routeCb;
-    this.logoutCb = logoutCb;
-    this.scanCb = scanCb;
-    this.fileCb = fileCb;
-  }
-
-  onScroll(y: number): void {
-    this.scrollCb(y);
-  }
 
   /**
    * 底栏收放的滑动采样。
@@ -1175,6 +1153,28 @@ class DshBridge {
       return;
     }
     this.onSwipeEvent(dy, dtMs);
+  }
+}
+
+// 注册进 WebView 的原生桥（window.__dshNative）
+class DshBridge {
+  private scrollCb: (y: number) => void;
+  private routeCb: (u: string) => void;
+  private logoutCb: () => void;
+  private scanCb: () => void;
+  private fileCb: (payload: string) => void;
+
+  constructor(scrollCb: (y: number) => void, routeCb: (u: string) => void,
+    logoutCb: () => void, scanCb: () => void, fileCb: (payload: string) => void) {
+    this.scrollCb = scrollCb;
+    this.routeCb = routeCb;
+    this.logoutCb = logoutCb;
+    this.scanCb = scanCb;
+    this.fileCb = fileCb;
+  }
+
+  onScroll(y: number): void {
+    this.scrollCb(y);
   }
 
   onRoute(url: string): void {
