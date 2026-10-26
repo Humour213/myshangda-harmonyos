@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 export const BRAND_BLUE = '#2D8CFA';
 
 // 统一认证
@@ -16,10 +21,18 @@ export const COMMUNITY_URL = 'https://sydxky.cn/';
 // ===== 社区适配版信息（关于 / 社区适配页展示） =====
 /** 应用分发页（下载站） */
 export const COMMUNITY_DOWNLOAD_URL = 'https://www.sydxky.cn/detail.php?id=1068';
-/** 本次合并所基于的开源仓库 */
-export const COMMUNITY_REPO_URL = 'https://anonymous.4open.science/r/myshangda-harmonyos-7AFE/';
-/** 上游 GitHub 仓库（作者 ZHOUcourrier） */
+/** 本仓库（当前维护版本，源码与 issue 都在这儿） */
+export const COMMUNITY_REPO_URL = 'https://github.com/Humour213/myshangda-harmonyos';
+/** 上游 GitHub 仓库（原始框架，作者 Courier） */
 export const COMMUNITY_UPSTREAM_URL = 'https://github.com/ZHOUcourrier/myshangda-harmonyos';
+
+// ===== 署名：上游与当前维护各一位，关于页与社区页都要露出 =====
+/** 原始框架作者 */
+export const AUTHOR_UPSTREAM_NAME = 'Courier';
+export const AUTHOR_UPSTREAM_URL = 'https://github.com/ZHOUcourrier';
+/** 本仓库维护者 */
+export const AUTHOR_SELF_NAME = 'Humour213';
+export const AUTHOR_SELF_URL = 'https://github.com/Humour213';
 /** 作者联系邮箱：域名部分请按实际补全，补全后本行注释可删 */
 export const COMMUNITY_EMAIL = 'minchincherrylips6@';
 

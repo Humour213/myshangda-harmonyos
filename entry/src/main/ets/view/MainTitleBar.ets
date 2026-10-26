@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 // 主界面自绘标题栏（HDS MINI 规格）：
 // 白底延伸到状态栏，56vp 内容区，22fp 加粗标题，
 // 右侧圆形底板(#F1F3F5)+24vp 图标按钮（HDS 一级页图标按钮规格）

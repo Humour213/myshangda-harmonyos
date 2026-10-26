@@ -282,6 +282,18 @@ hdc shell aa start -a EntryAbility -b com.courier.myshangda
 3. 登录成功后进入主页，底部导航可切换消息、审批、主页、通讯录、我的。
 4. 设置页可切换界面样式、清理缓存或退出登录。
 
+## 作者与致谢
+
+| 角色 | 署名 | 链接 |
+| :--- | :--- | :--- |
+| 原始框架 · 上游项目 | **Courier** | [ZHOUcourrier/myshangda-harmonyos](https://github.com/ZHOUcourrier/myshangda-harmonyos) |
+| 本仓库维护 · 卡片与外壳改造 | **Humour213** | [Humour213/myshangda-harmonyos](https://github.com/Humour213/myshangda-harmonyos) |
+
+本项目基于 **Courier** 的原始实现二次开发：原生五 Tab 外壳、ArkWeb 承载门户、
+zfsoft / 通讯录 H5 的 Android 桥兼容层出自上游；课表桌面卡片、上课提醒、HUKS 凭据加密、
+扫码与附件桥接、底栏收放与下拉刷新体验等改动由 **Humour213** 维护。
+上游的早期提交完整保留在 `main` 的历史里，可随时对照。
+
 ## 隐私与免责声明
 
 - 应用不收集、不上传任何个人信息，也不包含统计或广告 SDK。

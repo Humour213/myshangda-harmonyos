@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 import { NativeApi, CarouselItem, ServiceItem } from '../common/NativeApi';
 import { Router } from '../common/Nav';
 import { promptAction } from '@kit.ArkUI';

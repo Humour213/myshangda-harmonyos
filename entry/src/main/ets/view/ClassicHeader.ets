@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 // 原版 App 样式的子页/设置页蓝色工具栏：返回 | 标题 | (关闭)
 // 与 TabTitleBar 同构：真全屏下自避让状态栏
 @Component

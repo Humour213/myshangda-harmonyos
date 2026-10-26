@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 // 原版 App 主界面顶栏（v6 方案）：真全屏沉浸下组件自己避让状态栏
 // 总高 = 状态栏实测高度 + 56vp，蓝底延伸到状态栏下方，内容在 56vp 区垂直居中
 @Component

@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -5,7 +10,10 @@ import { bundleManager } from '@kit.AbilityKit';
 import { Router, BarUtil } from '../common/Nav';
 import { NAV_STYLE_CLASSIC } from '../common/PrefsStore';
 import { ClassicHeader } from '../view/ClassicHeader';
-import { COMMUNITY_DOWNLOAD_URL, COMMUNITY_REPO_URL, COMMUNITY_UPSTREAM_URL, COMMUNITY_EMAIL } from '../common/Constants';
+import {
+  COMMUNITY_DOWNLOAD_URL, COMMUNITY_REPO_URL, COMMUNITY_UPSTREAM_URL, COMMUNITY_EMAIL,
+  AUTHOR_UPSTREAM_NAME, AUTHOR_UPSTREAM_URL, AUTHOR_SELF_NAME, AUTHOR_SELF_URL
+} from '../common/Constants';
 
 /**
  * 社区适配说明页。
@@ -56,6 +64,25 @@ export struct CommunityPage {
       return;
     }
     Router.openExternal(`mailto:${COMMUNITY_EMAIL}`);
+  }
+
+  /** 一行「角色 + 署名」，点名字跳主页 */
+  @Builder
+  authorRow(role: string, name: string, url: string) {
+    Row() {
+      Text(role)
+        .fontSize(15)
+        .fontColor('#1A1A1A')
+        .layoutWeight(1)
+      Text(name)
+        .fontSize(13)
+        .fontColor('#2D8CFA')
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .onClick(() => {
+      this.openInBrowser(url);
+    })
   }
 
   /** 一行「标题 + 地址 + 复制」 */
@@ -146,6 +173,18 @@ export struct CommunityPage {
             .padding({ top: 18, bottom: 6 })
             .alignItems(HorizontalAlign.Center)
 
+            // 作者：上游与当前维护各一行，两边的名字都要在
+            this.card('作者')
+            Column() {
+              this.authorRow('原始框架', AUTHOR_UPSTREAM_NAME, AUTHOR_UPSTREAM_URL)
+              Divider().color('#F0F0F0').strokeWidth(0.5).margin({ left: 16 })
+              this.authorRow('本仓库维护', AUTHOR_SELF_NAME, AUTHOR_SELF_URL)
+            }
+            .width('100%')
+            .borderRadius(12)
+            .clip(true)
+            .backgroundColor(Color.White)
+
             // 下载与源码
             this.card('下载与源码')
             Column() {
@@ -153,11 +192,11 @@ export struct CommunityPage {
                 this.openInBrowser(COMMUNITY_DOWNLOAD_URL);
               })
               Divider().color('#F0F0F0').strokeWidth(0.5).margin({ left: 16 })
-              this.linkRow('开源仓库', COMMUNITY_REPO_URL, '匿名只读镜像，可直接浏览全部源码', () => {
-                this.openInApp(COMMUNITY_REPO_URL);
+              this.linkRow('开源仓库', COMMUNITY_REPO_URL, '当前版本源码，由 Humour213 维护', () => {
+                this.openInBrowser(COMMUNITY_REPO_URL);
               })
               Divider().color('#F0F0F0').strokeWidth(0.5).margin({ left: 16 })
-              this.linkRow('上游 GitHub 仓库', COMMUNITY_UPSTREAM_URL, '原始项目，由 ZHOUcourrier 维护', () => {
+              this.linkRow('上游 GitHub 仓库', COMMUNITY_UPSTREAM_URL, '原始框架，由 Courier 维护', () => {
                 this.openInBrowser(COMMUNITY_UPSTREAM_URL);
               })
             }

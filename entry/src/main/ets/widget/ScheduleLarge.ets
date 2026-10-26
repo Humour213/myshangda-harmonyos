@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 ﻿/**
  * 大卡片 2×4：整卡用状态色的浅调打底，顶部一张白卡承载"此刻"，
  * 下面是被降级的课程列表（圆点 + 课名 + 地点 + 开始时间）。

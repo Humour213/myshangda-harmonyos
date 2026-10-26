@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 import { Router } from '../common/Nav';
 import { BarUtil } from '../common/Nav';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
@@ -92,6 +97,11 @@ export struct AboutPage {
               .fontSize(11)
               .fontColor('#AAAAAA')
               .margin({ top: 6 })
+
+            Text('原始框架 Courier · 本仓库维护 Humour213')
+              .fontSize(11)
+              .fontColor('#AAAAAA')
+              .margin({ top: 8 })
 
             Row() {
               Text('下载与源码、联系作者')

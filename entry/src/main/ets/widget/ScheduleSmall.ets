@@ -1,3 +1,8 @@
+/*
+ * 我的商大 · HarmonyOS 社区适配版
+ * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
+ */
 /**
  * 小卡片 2×2：整卡用状态色的浅调打底，唯一一张白卡承载"此刻"（上课中/下节/明天第一节），
  * 白卡下方的剩余课程只剩圆点 + 课名 + 时间，退为次要信息。
