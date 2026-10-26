@@ -1,66 +1,71 @@
 /**
- * 迷你卡片 1×2：只显示"此刻"——上课中，或下节课；今天结束后切换成"明天预告"。
- * 不放列表、也不放状态点，把宽度全留给文字。
+ * 迷你卡片 1×2：只回答一个问题——"现在（或下一节）上什么"。
+ * 没有列表，整卡浅色打底 + 一张白卡，和小卡/大卡是同一套语言。
  */
 @Entry
 @Component
 struct ScheduleTiny {
   @LocalStorageProp('state') state: string = 'none';
-  @LocalStorageProp('status') status: string = '';
-  @LocalStorageProp('detail') detail: string = '';
-  @LocalStorageProp('tmTime') tmTime: string = '';
-  @LocalStorageProp('tmName') tmName: string = '';
+  @LocalStorageProp('heroTag') heroTag: string = '';
+  @LocalStorageProp('heroName') heroName: string = '';
+  @LocalStorageProp('heroTime') heroTime: string = '';
+  @LocalStorageProp('heroNote') heroNote: string = '';
+  @LocalStorageProp('accent') accent: string = '#8A94A6';
+  @LocalStorageProp('tint') tint: string = '#F0F2F6';
 
   build() {
-    Column({ space: 3 }) {
-      if (this.state === 'tomorrow') {
-        // 「明天」做成小胶囊 + 第一节时间，课名放第二行，一眼看出这是预告
-        Row({ space: 5 }) {
-          Text('明天')
+    Column() {
+      Column() {
+        Row() {
+          Row()
+            .width(5)
+            .height(5)
+            .backgroundColor(this.accent)
+            .borderRadius(3)
+          Text(this.heroTag)
             .fontSize(9)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#3A568C')
-            .padding({ left: 5, right: 5, top: 1, bottom: 1 })
-            .backgroundColor('#DCE5F8')
-            .borderRadius(4)
-          Text(this.tmTime)
-            .fontSize(10)
-            .fontColor('#7C8BAE')
+            .fontColor(this.accent)
+            .margin({ left: 4 })
+          Blank()
+          Text(this.heroNote)
+            .fontSize(9)
+            .fontColor('#9DA3B0')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
         .width('100%')
 
-        Text(this.tmName)
-          .fontSize(14)
+        Text(this.heroName)
+          .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#2E4A7D')
+          .fontColor('#10141A')
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-      } else {
-        Text(this.status)
-          .fontSize(14)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'done' || this.state === 'none' ? '#8A8F98' : '#1A1A1A')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
+          .margin({ top: 3 })
 
-        if (this.detail.length > 0) {
-          Text(this.detail)
-            .fontSize(10)
-            .fontColor('#8A8F98')
+        if (this.heroTime.length > 0) {
+          Text(this.heroTime)
+            .fontSize(9)
+            .fontColor('#767E8C')
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
+            .margin({ top: 1 })
         }
       }
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 8, bottom: 9 })
+      .backgroundColor('#FFFFFF')
+      .borderRadius(11)
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 12, right: 12 })
+    .padding({ left: 8, right: 8, top: 8, bottom: 8 })
     .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Start)
-    .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
+    .backgroundColor(this.tint)
     .onClick(() => {
       postCardAction(this, {
         action: 'router',

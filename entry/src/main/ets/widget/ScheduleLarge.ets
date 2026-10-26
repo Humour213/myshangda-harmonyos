@@ -1,49 +1,48 @@
 ﻿/**
- * 大卡片 2×4：状态 + 今天剩余全部课程（可滚动）。
- * 信息比小卡更多：每节显示时间、课名、地点，并给出「还剩几节」。
+ * 大卡片 2×4：整卡用状态色的浅调打底，顶部一张白卡承载"此刻"，
+ * 下面是被降级的课程列表（圆点 + 课名 + 地点 + 开始时间）。
+ * 信息比小卡更多：保留了地点和「共几节 · 还剩几节」。
  */
 @Entry
 @Component
 struct ScheduleLarge {
-  @LocalStorageProp('date') date: string = '';
-  @LocalStorageProp('weekday') weekday: string = '';
+  @LocalStorageProp('head') head: string = '';
   @LocalStorageProp('state') state: string = 'none';
-  @LocalStorageProp('status') status: string = '';
-  @LocalStorageProp('detail') detail: string = '';
+  @LocalStorageProp('heroTag') heroTag: string = '';
+  @LocalStorageProp('heroName') heroName: string = '';
+  @LocalStorageProp('heroTime') heroTime: string = '';
+  @LocalStorageProp('heroPlace') heroPlace: string = '';
+  @LocalStorageProp('heroNote') heroNote: string = '';
+  @LocalStorageProp('progress') progress: number = -1;
+  @LocalStorageProp('restLabel') restLabel: string = '';
   @LocalStorageProp('summary') summary: string = '';
-  @LocalStorageProp('tmLabel') tmLabel: string = '';
+  @LocalStorageProp('accent') accent: string = '#8A94A6';
+  @LocalStorageProp('tint') tint: string = '#F0F2F6';
+  @LocalStorageProp('ink') ink: string = '#232A36';
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
-  @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('b0') b0: string = '';
-  @LocalStorageProp('f0') f0: string = '';
+  @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('f0') f0: string = '';
 
   @LocalStorageProp('t1') t1: string = ''; @LocalStorageProp('n1') n1: string = '';
-  @LocalStorageProp('p1') p1: string = ''; @LocalStorageProp('b1') b1: string = '';
-  @LocalStorageProp('f1') f1: string = '';
+  @LocalStorageProp('p1') p1: string = ''; @LocalStorageProp('f1') f1: string = '';
 
   @LocalStorageProp('t2') t2: string = ''; @LocalStorageProp('n2') n2: string = '';
-  @LocalStorageProp('p2') p2: string = ''; @LocalStorageProp('b2') b2: string = '';
-  @LocalStorageProp('f2') f2: string = '';
+  @LocalStorageProp('p2') p2: string = ''; @LocalStorageProp('f2') f2: string = '';
 
   @LocalStorageProp('t3') t3: string = ''; @LocalStorageProp('n3') n3: string = '';
-  @LocalStorageProp('p3') p3: string = ''; @LocalStorageProp('b3') b3: string = '';
-  @LocalStorageProp('f3') f3: string = '';
+  @LocalStorageProp('p3') p3: string = ''; @LocalStorageProp('f3') f3: string = '';
 
   @LocalStorageProp('t4') t4: string = ''; @LocalStorageProp('n4') n4: string = '';
-  @LocalStorageProp('p4') p4: string = ''; @LocalStorageProp('b4') b4: string = '';
-  @LocalStorageProp('f4') f4: string = '';
+  @LocalStorageProp('p4') p4: string = ''; @LocalStorageProp('f4') f4: string = '';
 
   @LocalStorageProp('t5') t5: string = ''; @LocalStorageProp('n5') n5: string = '';
-  @LocalStorageProp('p5') p5: string = ''; @LocalStorageProp('b5') b5: string = '';
-  @LocalStorageProp('f5') f5: string = '';
+  @LocalStorageProp('p5') p5: string = ''; @LocalStorageProp('f5') f5: string = '';
 
   @LocalStorageProp('t6') t6: string = ''; @LocalStorageProp('n6') n6: string = '';
-  @LocalStorageProp('p6') p6: string = ''; @LocalStorageProp('b6') b6: string = '';
-  @LocalStorageProp('f6') f6: string = '';
+  @LocalStorageProp('p6') p6: string = ''; @LocalStorageProp('f6') f6: string = '';
 
   @LocalStorageProp('t7') t7: string = ''; @LocalStorageProp('n7') n7: string = '';
-  @LocalStorageProp('p7') p7: string = ''; @LocalStorageProp('b7') b7: string = '';
-  @LocalStorageProp('f7') f7: string = '';
+  @LocalStorageProp('p7') p7: string = ''; @LocalStorageProp('f7') f7: string = '';
 
   private ft(i: number): string {
     if (i === 0) { return this.t0; } else if (i === 1) { return this.t1; }
@@ -69,14 +68,6 @@ struct ScheduleLarge {
     return this.p7;
   }
 
-  private fb(i: number): string {
-    if (i === 0) { return this.b0; } else if (i === 1) { return this.b1; }
-    else if (i === 2) { return this.b2; } else if (i === 3) { return this.b3; }
-    else if (i === 4) { return this.b4; } else if (i === 5) { return this.b5; }
-    else if (i === 6) { return this.b6; }
-    return this.b7;
-  }
-
   private ff(i: number): string {
     if (i === 0) { return this.f0; } else if (i === 1) { return this.f1; }
     else if (i === 2) { return this.f2; } else if (i === 3) { return this.f3; }
@@ -85,115 +76,133 @@ struct ScheduleLarge {
     return this.f7;
   }
 
+  private hm(t: string): string {
+    if (t.length >= 5) {
+      return t.substring(0, 5);
+    }
+    return t;
+  }
+
   @Builder
-  block(i: number) {
-    Column() {
-      Row() {
-        Text(this.ft(i))
-          .fontSize(11)
+  row(i: number) {
+    Row({ space: 9 }) {
+      Row()
+        .width(7)
+        .height(7)
+        .backgroundColor(this.ff(i))
+        .borderRadius(4)
+      Column() {
+        Text(this.fn(i))
+          .fontSize(13)
           .fontWeight(FontWeight.Medium)
-          .fontColor(this.ff(i))
-          .opacity(0.9)
-        Blank()
-        Text(this.fp(i))
-          .fontSize(10)
-          .fontColor(this.ff(i))
-          .opacity(0.75)
+          .fontColor(this.ink)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (this.fp(i).length > 0) {
+          Text(this.fp(i))
+            .fontSize(10)
+            .fontColor('#8A91A0')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
       }
-      .width('100%')
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
 
-      Text(this.fn(i))
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.ff(i))
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .width('100%')
-        .margin({ top: 2 })
+      Text(this.hm(this.ft(i)))
+        .fontSize(10)
+        .fontColor('#8A91A0')
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: 8, bottom: 8 })
-    .backgroundColor(this.fb(i))
-    .borderRadius(12)
-    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 4, bottom: 4 })
   }
 
   build() {
     Column() {
-      // 头部：日期 + 星期 + 统计
+      // 卡片抬头：左边日期，右边今天上完了没
       Row() {
-        Text(this.date)
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'tomorrow' ? '#2E4A7D' : '#1A1A1A')
-        Text(' ' + this.weekday)
-          .fontSize(12)
-          .fontColor('#8A8F98')
+        Text(this.head)
+          .fontSize(10)
+          .fontColor('#8A93A6')
         Blank()
         Text(this.summary)
-          .fontSize(11)
-          .fontColor('#A8B0BC')
+          .fontSize(10)
+          .fontColor(this.accent)
+          .opacity(0.9)
       }
       .width('100%')
-      .padding({ left: 14, right: 14, top: 12, bottom: 8 })
+      .margin({ bottom: 7 })
 
-      // 状态条
-      Row({ space: 7 }) {
-        if (this.state === 'now') {
-          Row()
-            .width(8)
-            .height(8)
-            .backgroundColor('#3FBF6F')
-            .borderRadius(4)
-        }
-        Text(this.status)
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'done' || this.state === 'none' || this.state === 'tomorrow'
-            ? '#8A8F98' : '#1E63B4')
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-      }
-      .width('100%')
-      .padding({ left: 14, right: 14 })
-
-      // 「明天」分组标签：作为列表的小标题，而不是塞进状态句里
-      if (this.state === 'tomorrow' && this.tmLabel.length > 0) {
+      // 主视觉：全卡唯一一张白卡
+      Column() {
         Row() {
-          Text(this.tmLabel)
+          Text(this.heroTag)
             .fontSize(11)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#3A568C')
-            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor('#DCE5F8')
-            .borderRadius(7)
+            .fontColor(this.accent)
+            .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+            .backgroundColor(this.tint)
+            .borderRadius(5)
+          Blank()
+          Text(this.heroNote)
+            .fontSize(10)
+            .fontColor('#9DA3B0')
         }
         .width('100%')
-        .padding({ left: 14, right: 14, top: 7 })
-      } else if (this.detail.length > 0) {
-        Text(this.detail)
-          .fontSize(11)
-          .fontColor('#8A8F98')
-          .maxLines(1)
+
+        Text(this.heroName)
+          .fontSize(20)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#10141A')
+          .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-          .padding({ left: 14, right: 14, top: 1 })
-      }
+          .margin({ top: 5 })
 
-      List({ space: 7 }) {
+        if (this.heroTime.length > 0) {
+          Text(this.heroPlace.length > 0 ? `${this.heroTime} · ${this.heroPlace}` : this.heroTime)
+            .fontSize(11)
+            .fontColor('#767E8C')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .margin({ top: 3 })
+        }
+
+        if (this.progress >= 0) {
+          Row() {
+            Row()
+              .width(`${this.progress}%`)
+              .height(4)
+              .backgroundColor(this.accent)
+              .borderRadius(2)
+          }
+          .width('100%')
+          .height(4)
+          .backgroundColor('#EBEEF3')
+          .borderRadius(2)
+          .margin({ top: 9 })
+        }
+      }
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 10, bottom: 11 })
+      .backgroundColor('#FFFFFF')
+      .borderRadius(13)
+      .alignItems(HorizontalAlign.Start)
+
+      List({ space: 1 }) {
         ListItem() {
-          Column({ space: 7 }) {
+          Column() {
             ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
               if (this.fn(i).length > 0) {
-                this.block(i)
+                this.row(i)
               }
             }, (i: number) => String(i))
           }
           .width('100%')
-          .padding({ left: 10, right: 10, top: 6, bottom: 14 })
+          .padding({ top: 8, bottom: 2 })
           .alignItems(HorizontalAlign.Start)
         }
       }
@@ -201,10 +210,19 @@ struct ScheduleLarge {
       .layoutWeight(1)
       .scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.None)
+
+      if (this.restLabel.length > 0) {
+        Text(this.restLabel)
+          .fontSize(10)
+          .fontColor(this.accent)
+          .opacity(0.9)
+      }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
+    .padding({ left: 13, right: 13, top: 11, bottom: 10 })
+    .backgroundColor(this.tint)
+    .alignItems(HorizontalAlign.Start)
     .onClick(() => {
       postCardAction(this, {
         action: 'router',
