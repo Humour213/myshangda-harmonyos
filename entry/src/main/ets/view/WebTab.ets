@@ -1191,10 +1191,17 @@ export struct WebTab {
       }
       return;
     }
-    if (this.touchY < 0 || e.touches.length === 0) {
+    if (e.touches.length === 0) {
       return;
     }
     const y: number = e.touches[0].y;
+    // Web 是原生组件，ArkUI 层的 onTouch 常常只收到 Move / Up 而收不到 Down。
+    // 所以不能用「Down 之前一律忽略」，改成：没有基线就拿当前点当基线。
+    if (this.touchY < 0 || this.touchTs <= 0) {
+      this.touchY = y;
+      this.touchTs = e.timestamp;
+      return;
+    }
     const dy: number = this.touchY - y;
     const dtMs: number = (e.timestamp - this.touchTs) / 1000000;
     this.touchY = y;

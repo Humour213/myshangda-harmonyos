@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.18-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.19-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,18 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.19 — 2026-10-28
+
+- **修好「快速滑动收起底栏」在真机上完全失效**。`WebTab` 的触摸采样把 `TouchType.Down` 当作起点，
+  但 `Web` 是原生组件，ArkUI 层的 `onTouch` 实际只收到 `Move` 与 `Up`（实测一轮快速上滑：132 次 Move、
+  1 次 Up、0 次 Down）。起点 `touchY` 因此恒为 -1，所有 `Move` 在第一个判断就被丢弃，手势永远不生效。
+  现在改成「没有基线就拿当前 `Move` 点当基线」，不依赖 `Down` 也能测出速度。
+- 验证：上滑后 `barBottomMargin` 由 6 变 -180、底栏整条移出屏幕；停止上滑 1.5 秒自动回来；下滑立即唤出；
+  原版 App 样式下照旧常驻不收起。
+- 全功能回归同时覆盖：五 Tab 切换与冷启动恢复、双外观切换与重启保持、下拉刷新（含 3 秒节流）、
+  学生手册死链纠正、PDF 附件下载与预览、页面跳转返回、扫码、拨号、设置页全部入口、
+  社区适配页四个链接、桌面课表卡。
 
 ### 0.2.18 — 2026-10-27
 
