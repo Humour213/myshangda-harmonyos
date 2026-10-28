@@ -39,12 +39,6 @@ export struct SettingsPage {
     promptAction.showToast({ message: '缓存已清除', duration: 1500 });
   }
 
-  async doLogout(): Promise<void> {
-    // 不杀进程：清完会话由 Index 切回登录页，用户换个账号还能接着用
-    await Session.clearAll();
-    promptAction.showToast({ message: '已退出登录', duration: 1500 });
-  }
-
   openPermission(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
     // 系统设置「应用详情」页：显式拉起设置应用，pushParams 指定本应用包名
@@ -204,7 +198,8 @@ export struct SettingsPage {
                 .textAlign(TextAlign.Center)
                 .backgroundColor(Color.White)
                 .onClick(() => {
-                  this.doLogout();
+                  // 走二次确认，别让人误触就把账号密码和网页登录态一起清掉
+                  Session.confirmAndClear();
                 })
             }
           }

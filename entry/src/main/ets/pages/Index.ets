@@ -3,8 +3,11 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-import { TabDef, buildTabs, BASE_URL } from '../common/Constants';
+import { TabDef, buildTabs, BASE_URL, CAS_LOGIN_URL, isLoginUrl, MOBILE_UA } from '../common/Constants';
 import { WebTab } from '../view/WebTab';
+import { AUTO_LOGIN_JS } from '../service/BridgeScripts';
+import { webview } from '@kit.ArkWeb';
+import { Session } from '../service/Session';
 import { TabTitleBar } from '../view/TabTitleBar';
 import { SubPage } from './SubPage';
 import { AboutPage } from './AboutPage';
@@ -72,6 +75,17 @@ struct Index {
   @State gateUser: string = '';
   @State gatePass: string = '';
   @State gateBusy: boolean = false;
+  /** 登录失败时显示在按钮下方的原因（账号密码错误 / 超时） */
+  @State gateError: string = '';
+  /** 登录校验用的 Web 是否在跑（组件本身常驻在被遮住的最底层） */
+  @State probeOn: boolean = false;
+  private probeCtrl: webview.WebviewController = new webview.WebviewController();
+  private pendingUser: string = '';
+  private pendingPass: string = '';
+  private probePages: number = 0;
+  private probeSubmitted: boolean = false;
+  private probeSettled: boolean = false;
+  private probeTimer: number = -1;
   /** 底栏是否已因快速滑动而收起（只改 barBottomMargin，不销毁底栏） */
   @State barHidden: boolean = false;
   @State tabUrls: string[] = ['', '', '', '', '', ''];
@@ -194,6 +208,7 @@ struct Index {
     this.gateUser = '';
     this.gatePass = '';
     this.gateBusy = false;
+    this.gateError = '';
     this.agreeTerms = true;
     this.wasLoggedOut = true;
     // 退出登录不保留现场：重新登录后落在主页
@@ -693,28 +708,156 @@ struct Index {
       return;
     }
     this.gateBusy = true;
-    const ctx = getContext(this) as common.UIAbilityContext;
-    if (this.rememberPw) {
-      await PrefsStore.saveLogin(ctx, u, p);
-      AppStorage.setOrCreate('dsh_session_user', u);
-      AppStorage.setOrCreate('dsh_session_pass', p);
-    } else {
-      AppStorage.setOrCreate('dsh_session_user', u);
-      AppStorage.setOrCreate('dsh_session_pass', p);
-      await PrefsStore.clearLogin(ctx);
+    this.gateError = '';
+    this.pendingUser = u;
+    this.pendingPass = p;
+    this.startLoginProbe();
+  }
+
+  /**
+   * 校验账号密码：让一个被遮住的 Web 把真实登录流程跑一遍。
+   *
+   * 不复刻 CAS 协议 —— 这套登录页的密码要先用页面下发的 RSA 公钥加密（v2/getPubKey），
+   * 还可能弹验证码，在 ArkTS 里重写既容易错、也扛不住学校改版。
+   * 判定标准只有一条：提交之后能不能离开 uia.zjgsu.edu.cn/cas/login。
+   *
+   * 注意这个 Web 必须留在可视区内（只是被登录页背景盖住）：Chromium 会把移出屏幕的
+   * 页面当成不可见，节流掉它的定时器，AUTO_LOGIN_JS 里的 setTimeout 就永远不跑。
+   */
+  private startLoginProbe(): void {
+    this.probePages = 0;
+    this.probeSubmitted = false;
+    this.probeSettled = false;
+    if (this.probeTimer >= 0) {
+      clearTimeout(this.probeTimer);
     }
+    // 30 秒没结论就按超时处理，别让按钮永远停在「登录中…」
+    this.probeTimer = setTimeout(() => {
+      this.probeTimer = -1;
+      if (!this.probeSettled) {
+        this.finishProbe(false, '登录超时，请检查网络后重试');
+      }
+    }, 30000);
+    this.probeOn = true;
+    const url: string = `${CAS_LOGIN_URL}?service=${encodeURIComponent(BASE_URL + '/home/index')}`;
+    // 先把旧会话清掉再验。不清的话本机还留着上一次的 CAS cookie，
+    // 页面一进去就直接 302 放行，等于根本没验这组账号密码 —— 输错的密码照样能过。
+    try {
+      webview.WebCookieManager.clearAllCookiesSync();
+      webview.WebCookieManager.clearSessionCookieSync();
+    } catch (e) {
+    }
+    setTimeout(() => {
+      try {
+        this.probeCtrl.loadUrl(url);
+      } catch (e) {
+        this.finishProbe(false, '无法打开统一身份认证，请稍后重试');
+      }
+    }, 150);
+  }
+
+  private onProbePageEnd(url: string): void {
+    if (this.probeSettled || !this.probeOn) {
+      return;
+    }
+    this.probePages++;
+    const stillLogin: boolean = isLoginUrl(url);
+    if (stillLogin && !this.probeSubmitted) {
+      // 第一次落到登录页：填凭据并提交
+      this.probeSubmitted = true;
+      const uEsc: string = JSON.stringify(this.pendingUser).slice(1, -1);
+      const pEsc: string = JSON.stringify(this.pendingPass).slice(1, -1);
+      const script = AUTO_LOGIN_JS
+        .replace('__DSH_USER__', uEsc)
+        .replace('__DSH_PASS__', pEsc);
+      try {
+        this.probeCtrl.runJavaScript(script);
+      } catch (e) {
+        this.finishProbe(false, '登录页初始化失败，请稍后重试');
+      }
+      return;
+    }
+    if (stillLogin) {
+      // 提交之后又被送回登录页 —— 凭据没通过
+      this.finishProbe(false, '账号或密码错误，请重新输入');
+      return;
+    }
+    // 已经离开统一身份认证，票据下发成功
+    this.finishProbe(true, '');
+  }
+
+  private finishProbe(ok: boolean, reason: string): void {
+    if (this.probeSettled) {
+      return;
+    }
+    this.probeSettled = true;
+    if (this.probeTimer >= 0) {
+      clearTimeout(this.probeTimer);
+      this.probeTimer = -1;
+    }
+    if (!ok) {
+      this.probeOn = false;
+      this.gateBusy = false;
+      this.gateError = reason;
+      return;
+    }
+    this.applyPendingLogin();
+  }
+
+  /** 校验通过才落盘凭据、放行进门户 */
+  private async applyPendingLogin(): Promise<void> {
+    const ctx = getContext(this) as common.UIAbilityContext;
+    const u = this.pendingUser;
+    const p = this.pendingPass;
+    if (this.rememberPw) {
+      // 到这一步凭据已被门户认过，才会被记住
+      await PrefsStore.saveLogin(ctx, u, p);
+      promptAction.showToast({ message: '登录成功，已记住账号密码', duration: 1500 });
+    } else {
+      await PrefsStore.clearLogin(ctx);
+      promptAction.showToast({ message: '登录成功', duration: 1500 });
+    }
+    AppStorage.setOrCreate('dsh_session_user', u);
+    AppStorage.setOrCreate('dsh_session_pass', p);
+    this.probeOn = false;
     this.gateBusy = false;
-    // 从「退出登录」回来再登：让所有已挂载的 tab 重载，拿到新会话
+    this.gateError = '';
     if (this.wasLoggedOut) {
       this.wasLoggedOut = false;
       AppStorage.setOrCreate('dsh_relogin_ts', Date.now());
     }
     this.needGate = false;
     this.syncStatusBar();
-    // 首次登录成功后也执行「首页自动打开应用」，避免只在冷启动已登录时生效
     setTimeout(() => {
       this.tryAutoOpen();
     }, 2500);
+  }
+
+  /**
+   * 门户那边判定凭据无效时回调：退回登录页并说明原因。
+   *
+   * 判断依据在 WebTab 里 —— 自动登录跑满两轮还停在统一身份认证页，就是账号密码不对。
+   * 以前这种情况会把用户困在一个永远加载不出来的主界面上：既没有报错，也没有退路。
+   * 现在直接退回登录页，密码框清空，红字写清原因。
+   *
+   * 会话用久了自然过期也会走这里，同样退回登录页，比留个白屏合理。
+   */
+  onLoginFailed(): void {
+    if (this.needGate) {
+      return;
+    }
+    this.gateUser = AppStorage.get<string>('dsh_session_user') ?? this.gateUser;
+    this.gatePass = '';
+    this.gateBusy = false;
+    this.gateError = '账号或密码错误，请重新输入';
+    this.needGate = true;
+    // 清掉可能残留的半截会话，否则下次还会被判成功
+    Session.clearAll();
+    const ctx = getContext(this) as common.UIAbilityContext;
+    PrefsStore.clearLogin(ctx).catch(() => {
+    });
+    this.syncStatusBar();
+    this.applyWindowStyle();
   }
 
   async agreeStatement(): Promise<void> {
@@ -750,6 +893,35 @@ struct Index {
   @Builder
   gatePage() {
     Stack() {
+      // 登录校验用的 Web，常驻在最底层。刻意做成全屏、留在可视区内 ——
+      // Chromium 会把移出屏幕的页面当不可见，节流掉它的定时器，登录脚本就不跑了。
+      // 用户看到的是上面那层全屏背景图，这一层完全被盖住。
+      Web({ src: 'about:blank', controller: this.probeCtrl })
+        .width('100%')
+        .height('100%')
+        .focusable(false)
+        .hitTestBehavior(HitTestMode.None)
+        .javaScriptAccess(true)
+        .domStorageAccess(true)
+        .fileAccess(false)
+        .userAgent(MOBILE_UA)
+        // 这个 Web 会在背后真的提交一次学校登录页的表单。不关掉自动填充的话，
+        // 系统密码保险箱会把这次提交当成用户主动登录，弹出「是否保存账号和密码？」，
+        // 盖住整个登录页 —— 而这正是我们要避免的时机（保存应该发生在登录成功之后）。
+        .enableAutoFill(false)
+        .onPageEnd((event) => {
+          this.onProbePageEnd(event?.url ?? '');
+        })
+        .onErrorReceive((event) => {
+          if (event && event.request.isMainFrame()) {
+            // -3 是主动取消（导航打断），不算失败
+            if (event.error.getErrorCode() === -3) {
+              return;
+            }
+            this.finishProbe(false, '连不上统一身份认证，请检查网络后重试');
+          }
+        })
+
       Image($r('app.media.login_background'))
         .width('100%')
         .height('100%')
@@ -788,8 +960,12 @@ struct Index {
             .fontSize(14)
             .caretColor('#4B7DD9')
             .maxLength(25)
+            .enableAutoFill(false)
             .onChange((v: string) => {
               this.gateUser = v;
+              if (this.gateError !== '') {
+                this.gateError = '';
+              }
             })
           Divider().color('#E3E3E3').strokeWidth(1).width('100%')
 
@@ -808,8 +984,12 @@ struct Index {
               .caretColor('#4B7DD9')
               .maxLength(25)
               .showPasswordIcon(false)
+              .enableAutoFill(false)
               .onChange((v: string) => {
                 this.gatePass = v;
+                if (this.gateError !== '') {
+                  this.gateError = '';
+                }
               })
               .onSubmit(() => {
                 this.gateSubmit();
@@ -889,6 +1069,25 @@ struct Index {
               this.gateSubmit();
             })
 
+          // 校验没通过时把原因留在按钮下面；校验中给一句进度，别让人以为卡住了。
+          // 高度固定成 20：这句一出现就会把下面「我已阅读协议」那行顶走位，
+          // 而那一行的 marginTop 是照着原版背景图对过的，不能让错误提示改变版式。
+          Row() {
+            if (this.gateBusy) {
+              Text('正在验证账号密码，请稍候…')
+                .fontSize(12)
+                .fontColor('#8A8A8A')
+            } else if (this.gateError !== '') {
+              Text(this.gateError)
+                .fontSize(12)
+                .fontColor('#D93025')
+            }
+          }
+          .width('100%')
+          .height(20)
+          .alignItems(VerticalAlign.Center)
+          .margin({ top: 6 })
+
           // 我已阅读《用户协议》和《隐私声明》
           Row() {
             Checkbox({ name: 'agree' })
@@ -921,7 +1120,8 @@ struct Index {
               })
           }
           .width('100%')
-          .margin({ top: 92 })
+          // 92 是原版图的间距，上面那行提示固定占掉 26（20 高 + 6 上间距），这里补掉
+          .margin({ top: 66 })
         }
         .width('100%')
         .padding({ left: 26, right: 26 })
@@ -1130,6 +1330,9 @@ struct Index {
       },
       onTitleEvent: (t: string) => {
         this.tabTitles[idx] = t;
+      },
+      onLoginFailed: () => {
+        this.onLoginFailed();
       }
     })
       .layoutWeight(1)

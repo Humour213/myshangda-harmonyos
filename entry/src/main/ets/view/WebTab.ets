@@ -66,6 +66,8 @@ export struct WebTab {
   onSwipeEvent: (dy: number, dtMs: number) => void = (_dy: number, _dtMs: number) => {};
   onRouteEvent: (url: string) => void = (_url: string) => {};
   onTitleEvent: (t: string) => void = (_t: string) => {};
+  /** 自动登录连跑两轮还停在统一身份认证页：凭据无效，交给 Index 退回登录页 */
+  onLoginFailed: () => void = () => {};
 
   @State loaded: boolean = false;
   @State isLoading: boolean = false;
@@ -855,8 +857,12 @@ export struct WebTab {
               this.errMsg = '未登录：门户需要统一身份认证，请在启动页登录后使用';
               this.showFallback = true;
             } else if (this.autoTries >= 2) {
-              this.errMsg = '自动登录失败：请检查账号密码后重试';
+              // 两轮自动登录都被打回登录页，说明账号密码没通过。
+              // 只在这里放个兜底页的话，用户会困在加载不出来的主界面上无路可走，
+              // 所以同时通知 Index 退回登录页去改密码。
+              this.errMsg = '账号或密码错误，请重新输入';
               this.showFallback = true;
+              this.onLoginFailed();
             }
           }
           if (url.indexOf('/kb') >= 0 || url.toLowerCase().indexOf('schedule') >= 0) {
