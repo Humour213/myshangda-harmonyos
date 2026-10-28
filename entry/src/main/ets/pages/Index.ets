@@ -1,6 +1,6 @@
 /*
  * 我的商大 · HarmonyOS 社区适配版
- * 原始框架 © Courier — https://github.com/ZHOUcourrier/myshangda-harmonyos
+ * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
 import { TabDef, buildTabs, BASE_URL, CAS_LOGIN_URL, isLoginUrl, MOBILE_UA } from '../common/Constants';

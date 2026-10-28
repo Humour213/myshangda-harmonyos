@@ -397,7 +397,7 @@ hdc shell aa start -a EntryAbility -b com.humour.myshangda
 
 | 角色 | 署名 | 链接 |
 | :--- | :--- | :--- |
-| 原始框架 · 上游项目 | **Courier** | [ZHOUcourrier/myshangda-harmonyos](https://github.com/ZHOUcourrier/myshangda-harmonyos) |
+| 原始框架 · 上游项目 | **Courier** | [ZHOUcourier/myshangda-harmonyos](https://github.com/ZHOUcourier/myshangda-harmonyos) |
 | 本仓库维护 · 卡片与外壳改造 | **Humour213** | [Humour213/myshangda-harmonyos](https://github.com/Humour213/myshangda-harmonyos) |
 
 本项目基于 **Courier** 的原始实现二次开发：原生五 Tab 外壳、ArkWeb 承载门户、
