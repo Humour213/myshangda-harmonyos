@@ -13,7 +13,7 @@ import { common, Want, bundleManager } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { http, connection } from '@kit.NetworkKit';
 import { call } from '@kit.TelephonyKit';
-import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS } from '../service/BridgeScripts';
+import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS } from '../service/BridgeScripts';
 import { Router, WebRegistry } from '../common/Nav';
 import { PrefsStore, SavedLogin } from '../common/PrefsStore';
 import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
@@ -73,6 +73,14 @@ export struct WebTab {
   @State isLoading: boolean = false;
   @State progress: number = 0;
   @State errMsg: string = '';
+  /**
+   * 最近一次「在线加载」失败的真实原因。
+   *
+   * 在线失败后会自动切本地缓存，缓存再拿不到时兜底页原本只会说「本地没有可用离线缓存」——
+   * 等于把真正的原因（连不上、被重置、要校园网）盖掉了，用户只能猜。这里留着原始判断，
+   * 兜底页优先显示它。
+   */
+  @State netReason: string = '';
   @State showFallback: boolean = false;
   @State autoTries: number = 0;
   @State cacheMode: CacheMode = CacheMode.Default;
@@ -467,9 +475,74 @@ export struct WebTab {
     }
   }
 
+  /**
+   * 把 ArkWeb 的底层错误翻成用户看得懂的一句话。
+   *
+   * 原来这类页面失败后统一显示「本地没有可用离线缓存」，看到这句话的人只会以为缓存有问题，
+   * 实际上多半是「这个服务只对校园网开放」「服务器把连接掐了」「域名解析不出来」。
+   * 这里只按错误名判断，不依赖具体数字码 —— ArkWeb 各版本给的码不完全一致。
+   */
+  private describeNetError(info: string, url: string): string {
+    const raw: string = info === '' ? '网络连接失败' : info;
+    const up: string = raw.toUpperCase();
+    let host: string = '';
+    try {
+      const sep: number = url.indexOf('://');
+      if (sep > 0) {
+        let rest: string = url.substring(sep + 3);
+        const cut: number[] = [rest.indexOf('/'), rest.indexOf('?'), rest.indexOf('#')];
+        let end: number = rest.length;
+        for (let i = 0; i < cut.length; i++) {
+          if (cut[i] >= 0 && cut[i] < end) {
+            end = cut[i];
+          }
+        }
+        rest = rest.substring(0, end);
+        const port: number = rest.indexOf(':');
+        host = port > 0 ? rest.substring(0, port) : rest;
+      }
+    } catch (e) {
+    }
+    const at: string = host === '' ? '该服务' : host;
+    if (up.indexOf('NAME_NOT_RESOLVED') >= 0 || up.indexOf('NAME_RESOLUTION') >= 0) {
+      return `找不到 ${at} 的地址，请检查网络或 DNS 设置`;
+    }
+    if (up.indexOf('INTERNET_DISCONNECTED') >= 0) {
+      return '当前没有网络连接';
+    }
+    if (up.indexOf('CONNECTION_RESET') >= 0 || up.indexOf('CONNECTION_REFUSED') >= 0 ||
+      up.indexOf('CONNECTION_CLOSED') >= 0 || up.indexOf('CONNECTION_FAILED') >= 0 ||
+      up.indexOf('ADDRESS_UNREACHABLE') >= 0) {
+      return `连不上 ${at}：这个服务可能只在校园网内开放，连上校园 WiFi 或学校 VPN 后重试`;
+    }
+    if (up.indexOf('TIMED_OUT') >= 0 || up.indexOf('TIMEOUT') >= 0) {
+      return `${at} 响应超时：服务器可能繁忙，或只在校园网内可访问`;
+    }
+    if (up.indexOf('SSL') >= 0 || up.indexOf('CERT') >= 0) {
+      return `与 ${at} 的安全连接失败（证书或加密方式不被接受）`;
+    }
+    if (up.indexOf('EMPTY_RESPONSE') >= 0) {
+      return `${at} 没有返回任何内容，服务可能正在维护`;
+    }
+    if (up.indexOf('BLOCKED') >= 0) {
+      return `访问 ${at} 被拦下了，可能被网络策略阻断`;
+    }
+    return raw;
+  }
+
+  /** 兜底页上那句话：有真实原因就优先说原因，别拿「没有离线缓存」糊弄 */
+  private fallbackMsg(): string {
+    if (this.netReason !== '') {
+      return this.netReason;
+    }
+    return this.online ? '本地没有可用离线缓存' : '当前无网络，且该页面没有可用离线缓存';
+  }
+
   // 手动重试：在线直接重载，离线再走一轮探测
   private manualRetry(): void {
     this.showFallback = false;
+    // 用户主动重来一次，上一轮的原因作废
+    this.netReason = '';
     if (this.online) {
       this.reconnect();
       return;
@@ -515,7 +588,7 @@ export struct WebTab {
       } catch (e) {
       }
       this.isLoading = false;
-      this.errMsg = this.online ? '本地没有可用离线缓存' : '当前无网络，且该页面没有可用离线缓存';
+      this.errMsg = this.fallbackMsg();
       this.showFallback = true;
       this.syncOfflineFlag();
       this.startRetryLoop();
@@ -768,6 +841,11 @@ export struct WebTab {
           this.isLoading = true;
           this.loadFailed = false;
           this.errMsg = '';
+          // 一次新的在线导航，上一页失败的原因作废。
+          // 但离线缓存重载（goOffline 触发）不能清 —— 那正是要把在线失败的原因留到兜底页上用的场景。
+          if (this.cacheMode !== CacheMode.Only) {
+            this.netReason = '';
+          }
           // 兜底页保持到新页面真正加载成功（onPageEnd），避免重试期间闪白
           this.startWatch();
           if (this.cacheMode === CacheMode.Only || !this.online) {
@@ -787,7 +865,7 @@ export struct WebTab {
           if (this.loadFailed) {
             this.loaded = false;
             if (this.cacheMode === CacheMode.Only) {
-              this.errMsg = this.online ? '本地没有可用离线缓存' : '当前无网络，且该页面没有可用离线缓存';
+              this.errMsg = this.fallbackMsg();
               this.showFallback = true;
               this.showingOffline = true;
               this.offlineBanner = false;
@@ -828,6 +906,12 @@ export struct WebTab {
           if (isPortalUrl(url) || isContactUrl(url)) {
             try {
               this.controller.runJavaScript(ANDROID_BRIDGE_JS);
+            } catch (e) {
+            }
+            // 顺带装上点击反馈：服务图标按下去有缩放/变淡，点没点中一眼能看出来。
+            // 脚本自己带 __dshPressReady 守卫，重复注入是空操作。
+            try {
+              this.controller.runJavaScript(PRESS_FEEDBACK_JS);
             } catch (e) {
             }
           }
@@ -897,11 +981,16 @@ export struct WebTab {
             this.endRefresh();
             const info = event.error.getErrorInfo() || '网络连接失败';
             hilog.error(DOMAIN, TAG, 'main frame error %{public}s %{public}s', event.request.getRequestUrl(), info);
+            // 只在「在线加载」时记录原因。已经切到离线缓存之后又失败，那是缓存本身没有内容，
+            // 不该把最初那条真正的原因（连不上 / 被重置 / 要校园网）覆盖掉。
+            if (this.cacheMode !== CacheMode.Only) {
+              this.netReason = this.describeNetError(info, event.request.getRequestUrl());
+            }
             this.isLoading = false;
             this.loadFailed = true;
             if (this.cacheMode === CacheMode.Only || !this.online) {
               // 连本地缓存都没有：兜底页 + 后台继续等在线恢复
-              this.errMsg = this.online ? '本地没有可用离线缓存' : '当前无网络，且该页面没有可用离线缓存';
+              this.errMsg = this.fallbackMsg();
               this.showFallback = true;
               this.showingOffline = true;
               this.offlineBanner = false;
@@ -923,8 +1012,14 @@ export struct WebTab {
             hilog.error(DOMAIN, TAG, 'main frame http %{public}s code=%{public}d', event.request.getRequestUrl(), code);
             this.isLoading = false;
             this.loadFailed = true;
+            if (this.cacheMode !== CacheMode.Only) {
+              // 5xx 是服务端自己的问题（比如学校后端数据库报错），说清楚比丢一句「服务器错误」有用
+              this.netReason = code >= 500 ?
+                `服务器内部错误（${code}）：这是学校服务端的故障，稍后重试或找信息办反馈` :
+                `服务器返回了错误状态（${code}）`;
+            }
             if (this.cacheMode === CacheMode.Only) {
-              this.errMsg = this.online ? '本地没有可用离线缓存' : '当前无网络，且该页面没有可用离线缓存';
+              this.errMsg = this.fallbackMsg();
               this.showFallback = true;
               this.showingOffline = true;
               this.offlineBanner = false;
@@ -932,7 +1027,7 @@ export struct WebTab {
               this.startRetryLoop();
               return;
             }
-            this.errMsg = `服务器返回错误（${code}）`;
+            this.errMsg = this.fallbackMsg();
             this.goOffline();
           }
         })

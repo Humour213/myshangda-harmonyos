@@ -427,3 +427,55 @@ export const AUTO_LOGIN_JS = `(function(){
     return 'ok';
   } catch (e) { return 'err'; }
 })();`;
+
+// 点击反馈：门户页里的服务图标、列表项按下去原来毫无动静，点没点中全靠猜。
+// 用事件委托给被手指按住的那个元素临时加一个 class，`touchend` 后撤掉。
+// 只动 transform / opacity —— 两个都不参与布局，不会把页面顶歪。
+// 元素自己带 transform（靠位移定位的那种）时退化成只变透明度，免得把它挪回原位。
+export const PRESS_FEEDBACK_JS = `(function(){
+  try {
+    if (window.__dshPressReady) { return 'ok'; }
+    window.__dshPressReady = 1;
+    var css = '.dsh-press-scale{transform:scale(.94)!important;opacity:.78!important;' +
+      'transition:transform .1s ease,opacity .1s ease!important;}' +
+      '.dsh-press-fade{opacity:.55!important;transition:opacity .1s ease!important;}';
+    var st = document.createElement('style');
+    st.setAttribute('data-dsh', 'press');
+    st.appendChild(document.createTextNode(css));
+    (document.head || document.documentElement).appendChild(st);
+    var cur = null;
+    function release() {
+      if (cur) {
+        try { cur.el.classList.remove(cur.cls); } catch (e) {}
+        cur = null;
+      }
+    }
+    function pick(t) {
+      var el = t, n = 0;
+      while (el && el.nodeType === 1 && n < 6) {
+        var tag = el.tagName;
+        if (tag === 'A' || tag === 'BUTTON' || el.getAttribute('role') === 'button') { return el; }
+        try { if (getComputedStyle(el).cursor === 'pointer') { return el; } } catch (e) {}
+        el = el.parentElement;
+        n++;
+      }
+      return null;
+    }
+    document.addEventListener('touchstart', function(e){
+      var el = pick(e.target);
+      if (!el || el === document.body || el === document.documentElement) { return; }
+      if (cur && cur.el === el) { return; }
+      release();
+      var cls = 'dsh-press-scale';
+      try {
+        var tr = el.style && el.style.transform;
+        if (tr && tr !== 'none') { cls = 'dsh-press-fade'; }
+      } catch (e2) {}
+      try { el.classList.add(cls); cur = { el: el, cls: cls }; } catch (e3) {}
+    }, { passive: true, capture: true });
+    document.addEventListener('touchend', function(){ setTimeout(release, 70); }, { passive: true, capture: true });
+    document.addEventListener('touchcancel', release, { passive: true, capture: true });
+    document.addEventListener('scroll', release, { passive: true, capture: true });
+    return 'ok';
+  } catch (e) { return 'fail'; }
+})();`;

@@ -969,14 +969,16 @@ struct Index {
             })
           Divider().color('#E3E3E3').strokeWidth(1).width('100%')
 
-          // 密码行：输入框 + 原版眼睛图标切换可见性（icon_in/visiable_password.png）
+          // 密码行：输入框 + 眼睛图标控制明文/密文（icon_in/visiable_password.png）
+          // 图标常显：之前只在输入过密码后才出现，空框时右边什么都没有，用户会以为没这个功能。
+          // 空密码时淡显（占位也是提示），输进去之后恢复正常不透明度。
           Stack({ alignContent: Alignment.End }) {
             TextInput({ placeholder: '请输入密码', text: this.gatePass })
               .type(this.pwVisible ? InputType.Normal : InputType.Password)
               .height(64)
               .width('100%')
               .backgroundColor(Color.Transparent)
-              .padding({ left: 0, right: 34 })
+              .padding({ left: 0, right: 44 })
               .border({ width: 0 })
               .placeholderColor('#393939')
               .fontColor('#393939')
@@ -994,16 +996,21 @@ struct Index {
               .onSubmit(() => {
                 this.gateSubmit();
               })
-            if (this.gatePass !== '') {
+            Row() {
               Image(this.pwVisible ? $r('app.media.icon_visiable_password') : $r('app.media.icon_invisiable_password'))
-                .width(16)
-                .height(16)
-                .margin({ right: 4 })
+                .width(18)
+                .height(18)
                 .objectFit(ImageFit.Contain)
-                .onClick(() => {
-                  this.pwVisible = !this.pwVisible;
-                })
+                .opacity(this.gatePass === '' ? 0.35 : 1)
+                .margin({ right: 4 })
             }
+            .width(44)
+            .height(44)
+            .justifyContent(FlexAlign.End)
+            .onClick(() => {
+              // 空密码时也照常切换，图标跟着变，至少点下去有反馈
+              this.pwVisible = !this.pwVisible;
+            })
           }
           .width('100%')
           Divider().color('#E3E3E3').strokeWidth(1).width('100%')
