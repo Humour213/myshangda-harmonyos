@@ -26,6 +26,32 @@ import { Session } from '../service/Session';
 const DOMAIN = 0x0000;
 const TAG = 'WebTab';
 
+/**
+ * 门户下发的失效链接 → 现役地址。
+ *
+ * 学校站点改版或删文后，门户里的入口不会跟着更新。点进去只会看到学校站的
+ * 「提示信息：页面出错」，看着像 App 的 bug，其实是那个链接已经死了。
+ * 这里按 URL 里的文章 id 纠正，改成现役页面。
+ *
+ * 学生手册：门户指向 2023 年那篇旧文章（c1825a142396），已被学校删除（HTTP 410，
+ * page.htm 被重定向到 page.psp）。改到学生处「文件查询」列表页 —— 那里永远是最新版本，
+ * 学校出 2027 版也不用再改这里。
+ */
+const URL_REPAIR: string[][] = [
+  ['c1825a142396', 'https://xsc.zjgsu.edu.cn/1825/list.htm']
+];
+
+/** 命中失效链接表就返回现役地址，否则原样返回 */
+function repairUrl(url: string): string {
+  const lower: string = url.toLowerCase();
+  for (let i = 0; i < URL_REPAIR.length; i++) {
+    if (lower.indexOf(URL_REPAIR[i][0]) >= 0) {
+      return URL_REPAIR[i][1];
+    }
+  }
+  return url;
+}
+
 @Component
 export struct WebTab {
   @Prop tabId: string = '';
@@ -657,6 +683,16 @@ export struct WebTab {
         })
         .onLoadIntercept((req: OnLoadInterceptEvent) => {
           const u: string = req.data.getRequestUrl();
+          // 死链先纠正：门户里的旧入口会直接撞上学校站的「页面出错」
+          const fixed: string = repairUrl(u);
+          if (fixed !== u) {
+            hilog.info(DOMAIN, TAG, 'repair dead link %{public}s -> %{public}s', u, fixed);
+            try {
+              this.controller.loadUrl(fixed);
+            } catch (e) {
+            }
+            return true;
+          }
           if (u.startsWith('tel:')) {
             this.dialNumber(u);
             return true;

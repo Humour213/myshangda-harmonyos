@@ -20,7 +20,7 @@ export const COMMUNITY_URL = 'https://sydxky.cn/';
 
 // ===== 社区适配版信息（关于 / 社区适配页展示） =====
 /** 应用分发页（下载站） */
-export const COMMUNITY_DOWNLOAD_URL = 'https://www.sydxky.cn/detail.php?id=1068';
+export const COMMUNITY_DOWNLOAD_URL = 'https://sydxky.cn/detail.php?id=1060';
 /** 本仓库（当前维护版本，源码与 issue 都在这儿） */
 export const COMMUNITY_REPO_URL = 'https://github.com/Humour213/myshangda-harmonyos';
 /** 上游 GitHub 仓库（原始框架，作者 Courier） */
