@@ -13,6 +13,9 @@ import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { ClassicHeader } from '../view/ClassicHeader';
 import { OFFICIAL_APK_URL, COMMUNITY_URL } from '../common/Constants';
 import { Session } from '../service/Session';
+import { Reminders } from '../service/Reminders';
+import { CardSync } from '../service/CardSync';
+import { ScheduleData } from '../common/ScheduleTypes';
 
 // 设置页：恢复接手机前的鸿蒙原生分组列表样式
 // 组 1 原版 App 功能；组 2 通用工具；组 3 社区隐私与说明
@@ -21,6 +24,8 @@ export struct SettingsPage {
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
   /** 版本号统一从包信息读，避免改版本还要手改界面文案 */
   @State appVersion: string = '';
+  /** 上课提醒开关。默认开 —— 这功能本来就有，这里给的是「关掉」的选择权 */
+  @State remindOn: boolean = true;
 
   aboutToAppear(): void {
     try {
@@ -29,6 +34,38 @@ export struct SettingsPage {
     } catch (e) {
       this.appVersion = '';
     }
+    const ctx = getContext(this) as common.UIAbilityContext;
+    PrefsStore.isRemindOn(ctx).then((on: boolean) => {
+      this.remindOn = on;
+    });
+  }
+
+  /**
+   * 上课提醒开关。
+   *
+   * 打开时按缓存里的课表立刻排一遍，不用等下次进首页；关掉时把已排的提醒清干净，
+   * 否则系统里还留着上次发布的那批，关了照样会响。
+   */
+  async toggleReminder(on: boolean): Promise<void> {
+    const ctx = getContext(this) as common.UIAbilityContext;
+    await PrefsStore.setRemindOn(ctx, on);
+    if (!on) {
+      try {
+        await Reminders.cancelAll();
+      } catch (e) {
+      }
+      promptAction.showToast({ message: '已关闭上课提醒', duration: 1500 });
+      return;
+    }
+    const d: ScheduleData = CardSync.load(ctx);
+    if (d.courses.length === 0) {
+      promptAction.showToast({ message: '还没有课表数据，进一次首页后自动生效', duration: 2200 });
+      return;
+    }
+    Reminders.sync(ctx, d).then(() => {
+      promptAction.showToast({ message: '已开启，课前 10 分钟提醒', duration: 2000 });
+    }).catch(() => {
+    });
   }
 
   async doClearCache(): Promise<void> {
@@ -132,6 +169,17 @@ export struct SettingsPage {
             this.settingRow('摇一摇设置', '', () => {
               Router.stack.pushPathByName('setting_sub', 'shake', true);
             })
+            this.settingDivider()
+            // 上课提醒：不跳二级页，就地一个开关。关掉会把已排的提醒一起清掉
+            ListItem() {
+              SwitchRow({
+                label: '上课提醒',
+                on: $remindOn,
+                onChange: (v: boolean) => {
+                  this.toggleReminder(v);
+                }
+              })
+            }
           }
           .backgroundColor(Color.White)
           .borderRadius(12)

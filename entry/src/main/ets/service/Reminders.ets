@@ -51,6 +51,20 @@ export class Reminders {
     if (data.courses.length === 0) {
       return;
     }
+    // 用户在设置里关掉了就不发。顺手把上次发布的那批清掉，
+    // 免得关了开关之后系统里还留着旧提醒继续响。
+    const on: boolean = await PrefsStore.isRemindOn(ctx);
+    if (!on) {
+      const alive: number = await Reminders.aliveCount();
+      if (alive > 0) {
+        try {
+          await Reminders.cancelAll();
+        } catch (err) {
+          hilog.warn(DOMAIN, 'reminder', 'cancel failed');
+        }
+      }
+      return;
+    }
     const uniq: CourseItem[] = Reminders.unique(data.courses);
     const fp: string = Reminders.fingerprint(uniq);
 

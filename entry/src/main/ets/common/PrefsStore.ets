@@ -17,6 +17,8 @@ const KEY_LAST_TAB = 'last_tab';
 const KEY_ONBOARDED = 'onboarded';
 const KEY_AGREED = 'statement_agreed_v1';
 const KEY_NAV_STYLE = 'nav_style';
+/** 上课提醒总开关 */
+const KEY_REMIND_ON = 'remind_on';
 
 export const NAV_STYLE_NATIVE = 'native';
 export const NAV_STYLE_CLASSIC = 'classic';
@@ -170,6 +172,25 @@ export class PrefsStore {
       return (await store.get(KEY_LAST_TAB, -1)) as number;
     } catch (e) {
       return -1;
+    }
+  }
+
+  /** 上课提醒是否开启。默认开启（这个功能原本就有，给的是「关掉」的选项） */
+  static async isRemindOn(ctx: common.UIAbilityContext): Promise<boolean> {
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      return (await store.get(KEY_REMIND_ON, true)) as boolean;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  static async setRemindOn(ctx: common.UIAbilityContext, on: boolean): Promise<void> {
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      await store.put(KEY_REMIND_ON, on);
+      await store.flush();
+    } catch (e) {
     }
   }
 }
