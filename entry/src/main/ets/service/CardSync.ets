@@ -100,15 +100,12 @@ export class CardSync {
           resolve(false);
           return;
         }
-        const txt: string = JSON.stringify(d);
-        const before: string = CardSync.readRaw(ctx);
         CardSync.save(ctx, d);
-        // 课表没变就不动提醒：否则每次进首页都会把提醒「全删再全建」，
-        // 既浪费电，也可能让系统把重复发布的提醒当成骚扰
-        if (txt !== before) {
-          Reminders.sync(d).catch(() => {
-          });
-        }
+        // 提醒改成按周重复发布后，一次就够整学期用。sync 自己会用「课表指纹 + 现存提醒数」
+        // 判断该不该重建，所以这里每次都叫它 —— 提醒被系统回收或被用户手动删掉后，才能补回来。
+        // （以前是 txt !== before 才调用，等于课表不变就永远不重排，3 天窗口一过就彻底不响了。）
+        Reminders.sync(ctx, d).catch(() => {
+        });
         resolve(true);
       }).catch(() => {
         resolve(false);
