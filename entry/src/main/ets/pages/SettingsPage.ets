@@ -6,6 +6,9 @@
 import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE } from '../common/PrefsStore';
 import { webview } from '@kit.ArkWeb';
 import { promptAction } from '@kit.ArkUI';
+import { notificationManager } from '@kit.NotificationKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { common, Want, bundleManager } from '@kit.AbilityKit';
 import { Router, BarUtil } from '../common/Nav';
 import { preferences } from '@kit.ArkData';
@@ -45,6 +48,9 @@ export struct SettingsPage {
    *
    * 打开时按缓存里的课表立刻排一遍，不用等下次进首页；关掉时把已排的提醒清干净，
    * 否则系统里还留着上次发布的那批，关了照样会响。
+   *
+   * 开关是开着的但系统通知被关掉时，提醒一条都发不出去（系统直接拒，报
+   * "notification not allowed"），看起来就像功能坏了，所以这里要主动说明并给个跳转。
    */
   async toggleReminder(on: boolean): Promise<void> {
     const ctx = getContext(this) as common.UIAbilityContext;
@@ -57,13 +63,44 @@ export struct SettingsPage {
       promptAction.showToast({ message: '已关闭上课提醒', duration: 1500 });
       return;
     }
+    // 通知没开会白高兴一场，先把这件事说清楚。
+    // 无条件申请一次：isNotificationEnabled() 在这里会谎报「已开启」，
+    // 先判断的话永远弹不出授权框；requestEnableNotification 内部才认真实状态，
+    // 没授过就弹框、授过就直接返回。同样必须带 ctx，空参重载 API 12 起已废弃。
+    let notifyOn: boolean = true;
+    try {
+      await notificationManager.requestEnableNotification(ctx);
+      notifyOn = await notificationManager.isNotificationEnabled();
+    } catch (e) {
+      const err = e as BusinessError;
+      hilog.warn(0x0000, 'reminder', 'request failed: code=%{public}d msg=%{public}s', err.code, err.message);
+      notifyOn = false;
+    }
+    if (!notifyOn) {
+      promptAction.showDialog({
+        title: '还需要开启通知',
+        message: '上课提醒是通过系统通知发出的。现在「我的商大」的通知是关着的，提醒排上了也不会显示。',
+        buttons: [
+          { text: '稍后', color: '#8A8A8A' },
+          { text: '去开启', color: '#2D8CFA' }
+        ]
+      }).then((res: promptAction.ShowDialogSuccessResponse) => {
+        if (res.index === 1) {
+          this.openPermission();
+        }
+      }).catch(() => {
+      });
+    }
     const d: ScheduleData = CardSync.load(ctx);
     if (d.courses.length === 0) {
       promptAction.showToast({ message: '还没有课表数据，进一次首页后自动生效', duration: 2200 });
       return;
     }
     Reminders.sync(ctx, d).then(() => {
-      promptAction.showToast({ message: '已开启，课前 10 分钟提醒', duration: 2000 });
+      promptAction.showToast({
+        message: notifyOn ? '已开启，课前 10 分钟提醒' : '已开启，但需要允许通知才会提醒',
+        duration: 2000
+      });
     }).catch(() => {
     });
   }

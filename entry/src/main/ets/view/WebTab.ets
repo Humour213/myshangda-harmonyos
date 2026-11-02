@@ -718,6 +718,11 @@ export struct WebTab {
         .nestedScroll({ scrollForward: NestedScrollMode.SELF_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
         .userAgent(MOBILE_UA)
         .cacheMode(this.cacheMode)
+        // 关掉系统密码保险箱的自动填充。
+        // 门户的自动登录是脚本把账号密码填进统一认证页再提交的，每次冷启动都会走一遍；
+        // 系统会把这次提交当成「用户主动登录」，于是每次都弹「是否更新/保存密码」，
+        // 人还没看到首页就被问一次，天天如此。App 自己有记住密码，不需要系统再管一遍。
+        .enableAutoFill(false)
         .onContextMenuShow((event: OnContextMenuShowEvent) => {
           if (event && event.param.existsImageContents()) {
             this.ctxResult = event.result;

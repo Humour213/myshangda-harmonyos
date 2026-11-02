@@ -55,6 +55,7 @@ export class Reminders {
     // 免得关了开关之后系统里还留着旧提醒继续响。
     const on: boolean = await PrefsStore.isRemindOn(ctx);
     if (!on) {
+      hilog.info(DOMAIN, 'reminder', 'switch off, skip');
       const alive: number = await Reminders.aliveCount();
       if (alive > 0) {
         try {
@@ -80,6 +81,8 @@ export class Reminders {
     // 课表没变、系统里也确实还挂着我们的提醒 —— 什么都不用做。
     // 反过来说，只要一条都不剩了，哪怕指纹相同也要补回来。
     const alive: number = await Reminders.aliveCount();
+    hilog.info(DOMAIN, 'reminder', 'sync: courses=%{public}d fpSame=%{public}s alive=%{public}d',
+      uniq.length, fp === oldFp ? 'y' : 'n', alive);
     if (fp === oldFp && alive > 0) {
       return;
     }
@@ -90,18 +93,19 @@ export class Reminders {
       hilog.warn(DOMAIN, 'reminder', 'cancel failed');
     }
 
-    // 通知权限：没给就申请一次。用户拒过之后系统不会再弹，这里也就不再纠缠。
+    // 通知权限：直接申请一次，没授过就弹框，授过就立即返回。
+    // 这里不能先问 isNotificationEnabled —— 在这个场景下它会谎报「已开启」，
+    // 于是永远走不到申请那一步，通知就一直关着，提醒全被系统拒掉。
+    // 另外必须传 ctx：空参的重载从 API 12 起就废弃了，调了根本不弹框。
     try {
-      const enabled: boolean = await notificationManager.isNotificationEnabled();
-      if (!enabled) {
-        await notificationManager.requestEnableNotification();
-      }
+      await notificationManager.requestEnableNotification(ctx);
     } catch (err) {
       hilog.warn(DOMAIN, 'reminder', 'notification permission not granted');
     }
 
     const total: number = uniq.length;
     const n: number = total < MAX_REMINDERS ? total : MAX_REMINDERS;
+    hilog.info(DOMAIN, 'reminder', 'republish %{public}d of %{public}d', n, total);
     if (total > MAX_REMINDERS) {
       hilog.warn(DOMAIN, 'reminder', 'too many courses %{public}d, keep %{public}d', total, MAX_REMINDERS);
     }
