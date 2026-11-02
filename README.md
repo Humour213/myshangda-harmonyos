@@ -129,6 +129,17 @@
   （`github.com/ZHOUcourier`，主页有 localquant 等公开项目）。改动落在 `Constants.ets` 的三个常量、
   各源文件头部出处注释与本 README 的署名表；`app.json5` 的 `versionName` / `versionCode` 未动。
   提交 `2aacdb7`。
+- **同日修复（版本号不变）**：
+  - 主网页补 `Web.enableAutoFill(false)`。自动登录每次冷启动都会把凭据填进统一认证页并提交，
+    系统密码保险箱把它当成用户主动登录，于是每次都弹「是否更新密码」。登录校验那个 Web 和两个输入框
+    早就关了，唯独漏了主 Web。
+  - 上课提醒改为**按周重复的闹钟型**（`REMINDER_TYPE_ALARM` + `daysOfWeek`）。原来是日历型且只排未来
+    3 天、只在课表内容变化时重排，课表一学期不变 → 排完第一次就再也不补，窗口一过彻底不响。
+    重建判据改为「课表指纹 + 现存提醒数」。设置页新增「上课提醒」开关。
+  - `requestEnableNotification` 改用带 `UIAbilityContext` 的重载。空参版本自 API 12 起废弃，
+    调了既不弹授权框也不报错，通知状态便一直停在关闭。
+  - 遗留：真机上系统仍以 `notification not allowed` 拒绝发布提醒，而 `isNotificationEnabled()`
+    与 `requestEnableNotification()` 都报成功，属设备侧状态异常，待重启后复验。
 
 ### 0.2.20 — 2026-10-28
 
