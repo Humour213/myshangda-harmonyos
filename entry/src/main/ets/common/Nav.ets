@@ -6,6 +6,7 @@
 import { webview } from '@kit.ArkWeb';
 import { window, promptAction } from '@kit.ArkUI';
 import { common, Want } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 
 // 统一状态栏工具：一处设定，所有页面复用
 export class BarUtil {
@@ -47,6 +48,11 @@ export class BarUtil {
 // 全局子页面路由：任何组件都可以通过 Router.openSub 打开带系统转场动画的子页面
 export class Router {
   static stack: NavPathStack = new NavPathStack();
+  /** 最近一次压栈的地址与时间：用来挡住「同一个地址被连续压两次」 */
+  private static lastUrl: string = '';
+  private static lastTs: number = 0;
+  /** 子页最多叠这么多层，超过就不再压栈 */
+  private static readonly MAX_DEPTH: number = 6;
 
   static openSub(url: string, onPop?: () => void): void {
     if (!url) {
@@ -61,6 +67,23 @@ export class Router {
       return;
     }
     const target = url.startsWith('$rawfile/') ? `resource://rawfile/${url.substring(9)}` : url;
+    // 防循环：同一个地址在 1.2 秒内被再次请求就直接忽略。
+    // 有些 H5 页面（首页搜索框就是一例）在加载完之后又自己调一次 openWeb / 或者页面自己
+    // 改了顶层地址触发 Index.onRouteEvent，两条路各压一层子页，子页里再触发一次 ——
+    // 用户看到的就是「不停跳转」，一路推下去根本停不下来。
+    const now: number = Date.now();
+    if (target === Router.lastUrl && now - Router.lastTs < 1200) {
+      hilog.warn(0x0001, 'Router', 'openSub ignored (repeat) %{public}s', target);
+      return;
+    }
+    // 防深：真出现「A 打开 B、B 又打开 A」这种交替循环时，按时间戳挡不住，按层数总能挡住
+    if (Router.stack.size() >= Router.MAX_DEPTH) {
+      hilog.warn(0x0001, 'Router', 'openSub blocked (depth %{public}d)', Router.stack.size());
+      promptAction.showToast({ message: '页面层级太深，请返回后再试', duration: 1800 });
+      return;
+    }
+    Router.lastUrl = target;
+    Router.lastTs = now;
     if (onPop !== undefined) {
       Router.stack.pushPathByName('web', target, () => {
         onPop();

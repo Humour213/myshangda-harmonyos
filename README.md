@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.26-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.27-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,35 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.27 — 2026-11-04
+
+**问题**：点首页那个「搜索应用、通知」的搜索框，页面会一层接一层地往右推，停不下来。
+
+**成因**：这个动作本身只是一次 `Router.openSub('…/home/search')`（`NativeHomePage.ets:102`），
+但 `Router.openSub` 背后是 `NavPathStack.pushPathByName` —— 一个没有上限的栈。而同时还有第二条路
+在动：`Index.onRouteEvent` 只要看到「非根 URL + 栈为空 + 不在处理中」，就会**再**开一个子页，
+并且把当前 tab 重新 `loadUrl` 拉回根地址。于是出现闭环：
+
+```
+点搜索框 → 压一层子页 → tab 被拉回根页（重新加载）
+        → 页面加载完又把顶层地址改成非根 → onRouteEvent 再开子页 → …
+```
+
+两条路各自都能触发，彼此又互相喂，`stack.size()` 一路涨，用户看到的就是无限跳转。
+
+**改法**：不猜哪一条是主因，两条都掐掉，再加一道硬闸。
+
+- `common/Nav.ets` — `Router` 记住最近一次压栈的地址与时间：**同一地址 1.2 秒内再次请求直接丢弃**；
+  另外 `stack.size() >= 6` 时不再压栈，给一句「页面层级太深，请返回后再试」。
+  时间戳挡不住「A 开 B、B 又开 A」这种交替循环，层数总能挡住。
+- `pages/Index.ets` — `onRouteEvent` 那条自动开子页的路，**同一地址 5 秒内只开一次**。
+  这一条针对的正是上面那个「开子页 → 拉回根页 → 又跳过去」的自循环。
+
+> **真机验证：待补。** 设备离线，这是连续第五个未装机验证的版本。
+> 装包后重点看两件事：① 点首页搜索框只进一次搜索页，返回后停在该停在的地方；
+> ② 正常点链接进子页、返回、再点同一个链接，不能被误挡（这是这两道去重最大的副作用风险）。
+> 若行为异常，`历史版本\我的商大-0.2.26-signed.hap` 可直接回退。
 
 ### 0.2.26 — 2026-11-04
 

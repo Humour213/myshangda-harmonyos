@@ -148,6 +148,9 @@ export struct MainShell {
   @StorageLink('dsh_last_todo') lastTodoCount: number = 0;
   @StorageLink('dsh_nav_style') @Watch('onNavStyleChange') navStyle: string = 'native';
   @State routeHanding: boolean = false;
+  /** 上一次由 onRouteEvent 自动打开的子页地址与时间，用于挡住同一地址反复自动开 */
+  private lastAutoSubUrl: string = '';
+  private lastAutoSubTs: number = 0;
   @State agreeTerms: boolean = false;
   @State rememberPw: boolean = true;
   @State pwVisible: boolean = false;
@@ -1488,6 +1491,15 @@ export struct MainShell {
           this.tabUrls[idx] = url;
         }
         if (!this.isRootUrl(idx, url) && Router.stack.size() === 0 && !this.routeHanding) {
+          // 同一个地址刚被这条路自动开过就别再开：页面加载完又自己改顶层地址时，
+          // 会把「开子页 → 回退根页 → 又跳过去」变成一圈一圈的死循环，表现就是不停跳转。
+          const now: number = Date.now();
+          if (url === this.lastAutoSubUrl && now - this.lastAutoSubTs < 5000) {
+            hilog.info(0x0001, 'Index', 'auto sub skipped (repeat) %{public}s', url);
+            return;
+          }
+          this.lastAutoSubUrl = url;
+          this.lastAutoSubTs = now;
           this.routeHanding = true;
           this.tabUrls[idx] = tab.url;
           Router.openSub(url);
