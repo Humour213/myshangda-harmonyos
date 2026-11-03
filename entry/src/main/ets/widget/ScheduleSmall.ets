@@ -156,21 +156,17 @@ struct ScheduleSmall {
           .margin({ top: 2 })
 
         if (this.heroTime.length > 0) {
-          Row() {
-            Text(this.heroTime)
-              .fontSize(10)
-              .fontColor('#767E8C')
-            if (this.heroPlace.length > 0) {
-              Text(' · ' + this.heroPlace)
-                .fontSize(10)
-                .fontColor('#767E8C')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .layoutWeight(1)
-            }
-          }
-          .width('100%')
-          .margin({ top: 2 })
+          // 时间与地点合并成一个 Text，和 2×4 / 1×2 两张卡片的写法保持一致。
+          // 原来拆成两个 Text 并排：时间那个没有宽度约束，地点那个靠 layoutWeight(1)
+          // 吃剩余空间。地点一长，剩余宽度会被挤到不足「一个字 + 省略号」，
+          // ellipsis 就退化成硬裁 —— 表现就是最后一个字被切掉一半，还看不到 …。
+          Text(this.heroPlace.length > 0 ? `${this.heroTime} · ${this.heroPlace}` : this.heroTime)
+            .fontSize(10)
+            .fontColor('#767E8C')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .margin({ top: 2 })
         }
 
         if (this.progress >= 0) {
