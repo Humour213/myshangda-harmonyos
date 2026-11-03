@@ -139,13 +139,14 @@
 
 **问题**：点首页那个「搜索应用、通知」的搜索框，页面会一层接一层地往右推，停不下来。
 
-**成因**：这个动作本身只是一次 `Router.openSub('…/home/search')`（`NativeHomePage.ets:102`），
-但 `Router.openSub` 背后是 `NavPathStack.pushPathByName` —— 一个没有上限的栈。而同时还有第二条路
-在动：`Index.onRouteEvent` 只要看到「非根 URL + 栈为空 + 不在处理中」，就会**再**开一个子页，
+**成因**：首页那个「搜索应用、通知」是门户 H5 自己画的，点击后是网页内部导航到
+`…/home/search`，触发 `WebTab` 的桥回调进来 —— `Router.openSub` 背后是
+`NavPathStack.pushPathByName`，一个没有上限的栈。而同时还有第二条路在动：
+`Index.onRouteEvent` 只要看到「非根 URL + 栈为空 + 不在处理中」，就会**再**开一个子页，
 并且把当前 tab 重新 `loadUrl` 拉回根地址。于是出现闭环：
 
 ```
-点搜索框 → 压一层子页 → tab 被拉回根页（重新加载）
+点搜索框 → 网页跳到非根地址 → onRouteEvent 压一层子页 → tab 被拉回根页（重新加载）
         → 页面加载完又把顶层地址改成非根 → onRouteEvent 再开子页 → …
 ```
 
