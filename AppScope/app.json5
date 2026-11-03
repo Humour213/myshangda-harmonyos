@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.humour.myshangda",
     "vendor": "humour213",
-    "versionCode": 1000228,
-    "versionName": "0.2.28",
+    "versionCode": 1000229,
+    "versionName": "0.2.29",
     "buildVersion": "1",
     "icon": "$media:layered_image",
     "label": "$string:app_name"

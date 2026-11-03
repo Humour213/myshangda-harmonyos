@@ -196,6 +196,13 @@ export async function fetchTodoCount(): Promise<number> {
 }
 
 // 兼容命名导入
+//
+// 现状（0.2.29 起）：只有 fetchTodoCount 还在用（Index 拿待办数推通知、亮角标）。
+// 另外三个原本是「首页 / 我的」两个原生页面的数据源，那套原生页面已经删掉了 ——
+// 全 WebView 之后四个 tab 都直接加载学校网页，不再需要自己画一遍首页和我的。
+// 方法本身留着：它们是对学校这几个接口（轮播、服务九宫格、用户资料）的封装，
+// 将来若把某个 tab 改成原生视图可以直接接上，不必重新摸一遍接口。
+// 哪天确认不需要了，连同下面的 BasicInfo / CarouselItem / ServiceItem 一起删。
 export class NativeApi {
   static fetchBasicInfo: (path?: never) => Promise<BasicInfo> = fetchBasicInfo;
   static fetchCarousel = fetchCarousel;

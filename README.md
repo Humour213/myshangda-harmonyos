@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.28-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.29-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,25 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.29 — 2026-11-04
+
+**清理**：删掉四个从没被引用过的原生页面。
+
+`pages/` 下的 `NativeHomePage`、`NativeMinePage`、`NativeApprovalPage`、`NativeMsgPage`
+是早期「自己画一套原生界面」的产物。后来改成四个 tab 全部直接加载学校网页，
+这四个 struct 就没人 import 了（也不在 `main_pages.json` 里，`subPageBuilder` 也不认识它们），
+一直躺在仓库里。留着最大的坏处不是占地方 —— 是**看代码的人会以为其中某个正在用**，
+排查问题时照着它推因，方向从第一步就是错的（0.2.27 的分析就栽在这上面）。
+
+删除前确认过：三个 `Native*` 之外零引用，删完 `hvigor` 一次编译通过，反证它们确实是死的。
+
+`common/NativeApi.ets` 保留 —— `fetchTodoCount` 还在给待办角标和通知供数。
+另外三个方法（`fetchBasicInfo` / `fetchCarousel` / `fetchServices`）随着页面一起没人调了，
+但没删：它们是对学校三个接口的封装，将来若把某个 tab 改成原生视图可以直接接上。
+文件里加了注释说明这个现状和「哪天不要了连同哪些类型一起删」。
+
+**行为零变化**，这一版只是让仓库干净一点。
 
 ### 0.2.28 — 2026-11-04
 
