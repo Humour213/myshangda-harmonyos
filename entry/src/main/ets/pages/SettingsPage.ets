@@ -203,16 +203,8 @@ export struct SettingsPage {
         List({ space: 9 }) {
           // 组 1：原版 App 设置
           ListItemGroup() {
-            this.settingRow('版本检测', this.appVersion, () => {
-              promptAction.showToast({ message: `当前已是最新版本 ${this.appVersion}`, duration: 1800 });
-            })
-            this.settingDivider()
             this.settingRow('APP分享', '', () => {
               Router.stack.pushPathByName('setting_sub', 'share', true);
-            })
-            this.settingDivider()
-            this.settingRow('首页自动打开应用', '', () => {
-              Router.stack.pushPathByName('setting_sub', 'auto', true);
             })
             this.settingDivider()
             this.settingRow('摇一摇设置', '', () => {
@@ -377,22 +369,15 @@ export struct SettingsPage {
   }
 }
 
-// 二级页：auto=功能设置 / shake=摇一摇设置 / share=APP分享
+// 二级页：shake=摇一摇设置 / style=界面样式 / share=APP分享
 // 原生 HdsNavDestination 标题栏，内容使用分组卡片
 @Component
 export struct SettingSubPage {
-  @State type: string = 'auto';
-  @State autoCampus: boolean = false;
-  @State autoCard: boolean = false;
-  @State autoAi: boolean = false;
-  @State autoJwxt: boolean = false;
+  @State type: string = 'share';
   @State shakeOn: boolean = false;
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
 
   pageTitle(): string {
-    if (this.type === 'auto') {
-      return '功能设置';
-    }
     if (this.type === 'shake') {
       return '摇一摇设置';
     }
@@ -405,18 +390,6 @@ export struct SettingSubPage {
   loadPrefs(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
     PrefsStore.getStore(ctx).then((store) => {
-      store.get('auto_open_campus', false).then((v: preferences.ValueType) => {
-        this.autoCampus = v === true;
-      });
-      store.get('auto_open_card', false).then((v: preferences.ValueType) => {
-        this.autoCard = v === true;
-      });
-      store.get('auto_open_ai', false).then((v: preferences.ValueType) => {
-        this.autoAi = v === true;
-      });
-      store.get('auto_open_jwxt', false).then((v: preferences.ValueType) => {
-        this.autoJwxt = v === true;
-      });
       store.get('pref_shake', false).then((v: preferences.ValueType) => {
         this.shakeOn = v === true;
       });
@@ -511,29 +484,7 @@ export struct SettingSubPage {
           })
         }
         Column() {
-          if (this.type === 'auto') {
-            Column() {
-              SwitchRow({ label: '教务系统', on: $autoJwxt, onChange: (v: boolean) => {
-                this.setPref('auto_open_jwxt', v);
-              } })
-              this.divider()
-              SwitchRow({ label: '校园码', on: $autoCampus, onChange: (v: boolean) => {
-                this.setPref('auto_open_campus', v);
-              } })
-              this.divider()
-              SwitchRow({ label: '校园卡', on: $autoCard, onChange: (v: boolean) => {
-                this.setPref('auto_open_card', v);
-              } })
-              this.divider()
-              SwitchRow({ label: 'AI学伴', on: $autoAi, onChange: (v: boolean) => {
-                this.setPref('auto_open_ai', v);
-              } })
-            }
-            .width('100%')
-            .backgroundColor(Color.White)
-            .borderRadius(12)
-            .clip(true)
-          } else if (this.type === 'shake') {
+          if (this.type === 'shake') {
             Column() {
               SwitchRow({ label: '开启摇一摇功能', on: $shakeOn, onChange: (v: boolean) => {
                 this.setPref('pref_shake', v);

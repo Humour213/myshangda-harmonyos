@@ -328,12 +328,6 @@ export struct MainShell {
       this.gateLoading = false;
       this.syncStatusBar();
       this.onTargetUrl();
-      if (!this.needGate) {
-        // 已登录：进入主界面后按「功能设置」自动打开对应功能
-        setTimeout(() => {
-          this.tryAutoOpen();
-        }, 2500);
-      }
     });
     PrefsStore.isStatementAgreed(ctx).then((agreed: boolean) => {
       if (!agreed) {
@@ -458,33 +452,10 @@ export struct MainShell {
     }
   }
 
-  // 首页自动打开应用（功能设置二级页里开启的项）
-  tryAutoOpen(): void {
-    const ctx = getContext(this) as common.UIAbilityContext;
-    PrefsStore.getStore(ctx).then((store) => {
-      store.get('auto_open_campus', false).then((v: preferences.ValueType) => {
-        if (v === true) {
-          Router.openSub('https://xym.zjgsu.edu.cn/yzy/index.html?yhlx=aa&version=5.1');
-        }
-      });
-      store.get('auto_open_card', false).then((v: preferences.ValueType) => {
-        if (v === true) {
-          Router.openSub('https://xyk.zjgsu.edu.cn/easytong_app/h5/h5FunctionList/SSO2H5');
-        }
-      });
-      store.get('auto_open_ai', false).then((v: preferences.ValueType) => {
-        if (v === true) {
-          Router.openSub('https://xueban.zjgsu.edu.cn/zsxb/?v4.1.22');
-        }
-      });
-      store.get('auto_open_jwxt', false).then((v: preferences.ValueType) => {
-        if (v === true) {
-          Router.openSub('https://jwxt.zjgsu.edu.cn/jwglxt/xtgl/index_initMenu.html');
-        }
-      });
-    });
-  }
-
+  // 这里原本有个 tryAutoOpen()：进主界面 2.5 秒后按「功能设置」里的开关自动打开
+  // 校园码 / 校园卡 / AI学伴 / 教务系统。0.2.31 把那组开关和这个方法一起删了 ——
+  // 开关没了还留着行为，就成了"看不见的僵尸设置"：以前开过的用户一进 App 就莫名其妙
+  // 跳走，却再也找不到地方关。行为跟着入口一起走。
   syncStatusBar(): void {
     this.applyWindowStyle();
   }
@@ -987,9 +958,6 @@ export struct MainShell {
       }
       this.needGate = false;
       this.applyWindowStyle();
-      setTimeout(() => {
-        this.tryAutoOpen();
-      }, 2500);
     }, 1500);
   }
 
