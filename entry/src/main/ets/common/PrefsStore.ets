@@ -93,8 +93,12 @@ export class PrefsStore {
       await store.delete(KEY_USER);
       await store.delete(KEY_PASS);
     } else {
+      // 走明文兜底时必须把旧密文删掉。getLogin 是优先读密文的，
+      // 不删的话新密码会被旧密文遮住 —— 明明刚改了密码，读出来还是上一次那个。
       await store.put(KEY_USER, user);
       await store.put(KEY_PASS, pass);
+      await store.delete(KEY_USER_ENC);
+      await store.delete(KEY_PASS_ENC);
     }
     await store.put(KEY_ONBOARDED, true);
     await store.flush();

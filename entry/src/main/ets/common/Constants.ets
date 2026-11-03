@@ -134,16 +134,20 @@ export function isLoginUrl(url: string): boolean {
   if (!url) {
     return false;
   }
-  const u = url.toLowerCase();
-  return u.includes(`://${LOGIN_HOST}/cas/login`);
+  // 必须按主机名精确判断。以前用 url.includes('://uia.zjgsu.edu.cn/cas/login')，
+  // 像 https://evil.com/#https://uia.zjgsu.edu.cn/cas/login 这种也能命中，
+  // 而命中之后我们会把学号密码注入进去自动提交 —— 等于把凭据送到别人页面上。
+  if (!hostIs(url, LOGIN_HOST)) {
+    return false;
+  }
+  return url.toLowerCase().includes('/cas/login');
 }
 
 export function isPortalUrl(url: string): boolean {
   if (!url) {
     return false;
   }
-  const u = url.toLowerCase();
-  return u.includes('://myapp.zjgsu.edu.cn');
+  return hostIs(url, 'myapp.zjgsu.edu.cn');
 }
 
 // 通讯录（zfsoft 通讯录）也走 app-UAH5 分支，二级页依赖 window.android.openWeb
@@ -151,7 +155,7 @@ export function isContactUrl(url: string): boolean {
   if (!url) {
     return false;
   }
-  return url.toLowerCase().includes('://txl.zjgsu.edu.cn');
+  return hostIs(url, 'txl.zjgsu.edu.cn');
 }
 
 export function isHttpUrl(url: string): boolean {
@@ -165,4 +169,14 @@ export function isHttpUrl(url: string): boolean {
 export function hostOf(url: string): string {
   const m = url.match(/^[a-z]+:\/\/([^/?#]+)/i);
   return m ? m[1].toLowerCase() : '';
+}
+
+/**
+ * URL 的主机是否就是 host（允许带端口）。
+ * 判定「这是不是我们自己的页面」一律用它，不要对整条 URL 做 includes ——
+ * 那样 `https://evil.com/#https://myapp.zjgsu.edu.cn` 也会被判成自家页面。
+ */
+export function hostIs(url: string, host: string): boolean {
+  const h: string = hostOf(url);
+  return h === host || h.startsWith(`${host}:`);
 }

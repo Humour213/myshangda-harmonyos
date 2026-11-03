@@ -932,9 +932,14 @@ export struct WebTab {
           }
           if (isLoginUrl(url) && this.needLogin && pass0 !== '' && this.autoTries < 2) {
             this.autoTries++;
+            // 必须转义再拼进脚本。原来直接把密码塞进单引号里，密码带 ' 或 \ 时
+            // 整段脚本是语法错误，自动登录永不提交，人也永远卡在 CAS 页。
+            // Index 那边一直是对的，这里漏了。
+            const uEsc: string = JSON.stringify(this.creds.user).slice(1, -1);
+            const pEsc: string = JSON.stringify(this.creds.pass).slice(1, -1);
             const script = AUTO_LOGIN_JS
-              .replace('__DSH_USER__', this.creds.user)
-              .replace('__DSH_PASS__', this.creds.pass);
+              .replace('__DSH_USER__', uEsc)
+              .replace('__DSH_PASS__', pEsc);
             try {
               this.controller.runJavaScript(script);
             } catch (e) {

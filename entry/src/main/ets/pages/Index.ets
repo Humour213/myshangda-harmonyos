@@ -114,11 +114,14 @@ struct Index {
   @StorageLink('dsh_targetTab') @Watch('onTargetTab') targetTab: string = '';
 
   setupNotifications(): void {
+    // 这里以前是「先问 isNotificationEnabled，没开才申请」，而且申请用的是无参重载。
+    // 两个错误叠在一起，启动路径上等于一次都没真正申请过通知权限：
+    //   1. isNotificationEnabled() 在真机上会「谎报已开启」，永远进不了 if 分支；
+    //   2. requestEnableNotification() 从 API 12 起废弃，不传 ctx 根本不弹授权框。
+    // 现在直接带 ctx 申请，没授过会弹框，授过则立即返回。
     try {
-      notificationManager.isNotificationEnabled().then((en: boolean) => {
-        if (!en) {
-          notificationManager.requestEnableNotification().catch(() => {});
-        }
+      const ctx = getContext(this) as common.UIAbilityContext;
+      notificationManager.requestEnableNotification(ctx).catch(() => {
       });
     } catch (e) {
     }

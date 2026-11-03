@@ -93,7 +93,11 @@ export class CardSync {
       }
       raw.then((res: string) => {
         const d: ScheduleData = parseSchedule(String(res));
-        if (d.courses.length === 0 && d.week.length === 0) {
+        // 课程列表为空就一律不落盘，哪怕周次文本抓到了。
+        // 放假周、开学前、以及页面还没渲染完（抓取是延时 3.5 秒的一次性动作）都会出现
+        // 「有周次、没课程」，这种空表一旦写进去，桌面卡片会一直显示「今天没课」，
+        // 而且没有任何机制能自己纠正，只能等下次抓取成功。
+        if (d.courses.length === 0) {
           if (!quiet) {
             hilog.warn(DOMAIN, TAG, 'no schedule scraped');
           }

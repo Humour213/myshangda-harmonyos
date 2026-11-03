@@ -46,8 +46,27 @@ const PERIOD_START: string[] = [
  * 课表真的变了（调课、换老师、换教室）时靠指纹发现并重建。
  */
 export class Reminders {
-  /** 课表变了就重建，没变但提醒没了（被系统回收/被手动删）也重建 */
-  static async sync(ctx: common.UIAbilityContext, data: ScheduleData): Promise<void> {
+  /** sync 的串行队列，见 sync() 里的说明 */
+  private static chain: Promise<void> = Promise.resolve();
+
+  /**
+   * 串行入口。
+   *
+   * 首页每次加载完（WebTab.onPageEnd）和设置页开关都会调 sync，两处完全可能撞在一起：
+   * 第二次进来时第一次的提醒还在异步发布中，aliveCount() 读到的仍是 0，
+   * 于是又 cancelAll + 再发一遍 —— 重复闹钟、把系统 30 条配额打满、后半批发布全失败。
+   * 这里用一条 Promise 链把调用排队，保证同一时刻只有一次在跑。
+   */
+  static sync(ctx: common.UIAbilityContext, data: ScheduleData): Promise<void> {
+    const run = (): Promise<void> => Reminders.doSync(ctx, data).catch((): void => {
+    });
+    const next: Promise<void> = Reminders.chain.then(run, run);
+    Reminders.chain = next;
+    return next;
+  }
+
+  /** 课表变了就重建，没变但提醒少了（被系统回收/被手动删）也重建 */
+  private static async doSync(ctx: common.UIAbilityContext, data: ScheduleData): Promise<void> {
     if (data.courses.length === 0) {
       return;
     }
@@ -79,11 +98,24 @@ export class Reminders {
     }
 
     // 课表没变、系统里也确实还挂着我们的提醒 —— 什么都不用做。
-    // 反过来说，只要一条都不剩了，哪怕指纹相同也要补回来。
+    //
+    // 判据必须是「现存条数 >= 应发条数」，不能只判 alive > 0：
+    // 实际丢失是渐进的（撞上限被挤掉、单条发布失败、用户在时钟里删掉几条），
+    // 只要还剩一条，alive > 0 就会一直判定「还活着」，缺的那几门永远补不回来。
+    let expect: number = 0;
+    for (let i = 0; i < uniq.length; i++) {
+      const idx: number = uniq[i].start - 1;
+      if (idx >= 0 && idx < PERIOD_START.length) {
+        expect++;
+      }
+    }
+    if (expect > MAX_REMINDERS) {
+      expect = MAX_REMINDERS;
+    }
     const alive: number = await Reminders.aliveCount();
-    hilog.info(DOMAIN, 'reminder', 'sync: courses=%{public}d fpSame=%{public}s alive=%{public}d',
-      uniq.length, fp === oldFp ? 'y' : 'n', alive);
-    if (fp === oldFp && alive > 0) {
+    hilog.info(DOMAIN, 'reminder', 'sync: courses=%{public}d expect=%{public}d fpSame=%{public}s alive=%{public}d',
+      uniq.length, expect, fp === oldFp ? 'y' : 'n', alive);
+    if (fp === oldFp && alive >= expect && expect > 0) {
       return;
     }
 
@@ -109,6 +141,11 @@ export class Reminders {
     if (total > MAX_REMINDERS) {
       hilog.warn(DOMAIN, 'reminder', 'too many courses %{public}d, keep %{public}d', total, MAX_REMINDERS);
     }
+    // 逐条收集起来一起 await，全部发完才写指纹。
+    // 原来是 fire-and-forget，紧接着就写指纹；只要有一条还没回来就写盘，
+    // 下次 sync 看到「指纹已存、但 alive 不够」又会整批重发，撞上系统 30 条上限，
+    // 后半批直接失败 —— 这正是「少了几门课的提醒」的由来。
+    const tasks: Promise<void>[] = [];
     for (let i = 0; i < n; i++) {
       const c: CourseItem = uniq[i];
       const idx: number = c.start - 1;
@@ -128,8 +165,9 @@ export class Reminders {
       if (hour < 0) {
         hour += 24;
       }
-      Reminders.publish(c, hm, hour, minute);
+      tasks.push(Reminders.publish(c, hm, hour, minute));
     }
+    await Promise.all(tasks);
 
     if (store !== null) {
       try {
@@ -192,7 +230,7 @@ export class Reminders {
     }
   }
 
-  private static publish(c: CourseItem, hm: string, hour: number, minute: number): void {
+  private static publish(c: CourseItem, hm: string, hour: number, minute: number): Promise<void> {
     const req: reminderAgentManager.ReminderRequestAlarm = {
       reminderType: reminderAgentManager.ReminderType.REMINDER_TYPE_ALARM,
       // 提前 10 分钟提醒，所以响的时间和上课时间差一截，正文里把上课时间写清楚
@@ -212,10 +250,10 @@ export class Reminders {
       },
       actionButton: []
     };
-    reminderAgentManager.publishReminder(req).then(() => {
+    return reminderAgentManager.publishReminder(req).then((): void => {
       hilog.info(DOMAIN, 'reminder', 'published %{public}s at %{public}d:%{public}d',
         c.name, hour, minute);
-    }).catch((err: Error) => {
+    }).catch((err: Error): void => {
       hilog.warn(DOMAIN, 'reminder', 'publish failed: %{public}s', err.message);
     });
   }
