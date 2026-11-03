@@ -303,6 +303,13 @@ struct Index {
     this.registerNetwork();
     PrefsStore.getLogin(ctx).then((l: SavedLogin) => {
       this.needGate = l.user === '' || l.pass === '';
+      if (!this.needGate) {
+        // 把凭据同时放进 AppStorage：各 tab 的自动登录会先读自己那份（异步加载的），
+        // 读不到时再看这里。冷启动时页面可能比 that 那次读盘先加载完，
+        // 少了这条兜底，就会出现「明明记住了密码，却提示未登录」。
+        AppStorage.setOrCreate('dsh_session_user', l.user);
+        AppStorage.setOrCreate('dsh_session_pass', l.pass);
+      }
       // 恢复上次停留的 Tab：在 gateLoading 放开之前拿到，避免先闪一下主页再跳
       PrefsStore.getLastTab(ctx).then((last: number) => {
         if (last >= 0 && last < this.tabs.length) {

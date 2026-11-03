@@ -7,6 +7,7 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { CredVault } from './CredVault';
+import { CredStore, CredPair } from './CredStore';
 
 const PREF_NAME = 'dsh_prefs';
 const KEY_USER = 'login_user';
@@ -37,6 +38,14 @@ export class PrefsStore {
   static async getLogin(ctx: common.UIAbilityContext): Promise<SavedLogin> {
     const l = new SavedLogin();
     try {
+      // 首选系统的资产存储。这条路是 0.2.24 起的主路径，
+      // 因为 HUKS 自拼 AES-GCM 在实测设备上往返校验从来没通过过。
+      const pair: CredPair = await CredStore.load();
+      if (pair.user !== '' && pair.pass !== '') {
+        l.user = pair.user;
+        l.pass = pair.pass;
+        return l;
+      }
       const store = await PrefsStore.getStore(ctx);
       // 优先读 HUKS 密文
       const eu = (await store.get(KEY_USER_ENC, '')) as string;
@@ -70,10 +79,10 @@ export class PrefsStore {
   }
 
   /**
-   * 把遗留的明文凭据迁移成密文，返回是否迁移成功。
+   * 把遗留的明文凭据迁到系统资产存储，返回是否迁移成功。
    *
-   * 迁不动（本机 HUKS 不可用）时原样保留明文，先保住自动登录；
-   * 等用户下次真正登录时再由 saveLogin 统一处理（那时能加密就加密，不能就不存）。
+   * 迁不动（资产存储不可用）时原样保留明文，先保住自动登录；
+   * 等用户下次真正登录时再由 saveLogin 统一处理。
    */
   static async migrateLegacy(ctx: common.UIAbilityContext): Promise<boolean> {
     try {
@@ -83,20 +92,20 @@ export class PrefsStore {
       if (user === '' || pass === '') {
         return false;
       }
-      const eu = await CredVault.encrypt(user);
-      const ep = await CredVault.encrypt(pass);
-      if (eu === '' || ep === '') {
+      if (!(await CredStore.save(user, pass))) {
         return false;
       }
-      // 往返校验通过才落盘，否则明文先留着
-      if ((await CredVault.decrypt(eu)) !== user || (await CredVault.decrypt(ep)) !== pass) {
+      // 回读校验通过才删明文，否则明文先留着 —— 不能因为迁移把用户唯一的凭据搞丢
+      const back: CredPair = await CredStore.load();
+      if (back.user !== user || back.pass !== pass) {
         return false;
       }
-      await store.put(KEY_USER_ENC, eu);
-      await store.put(KEY_PASS_ENC, ep);
       await store.delete(KEY_USER);
       await store.delete(KEY_PASS);
+      await store.delete(KEY_USER_ENC);
+      await store.delete(KEY_PASS_ENC);
       await store.flush();
+      hilog.info(0x0001, 'PrefsStore', 'legacy plaintext migrated to asset store');
       return true;
     } catch (e) {
       return false;
@@ -115,6 +124,20 @@ export class PrefsStore {
    */
   static async saveLogin(ctx: common.UIAbilityContext, user: string, pass: string): Promise<boolean> {
     const store = await PrefsStore.getStore(ctx);
+    await store.put(KEY_ONBOARDED, true);
+    // 主路径：系统资产存储。存下了就把 preferences 里可能残留的四份历史凭据清掉，
+    // 免得日后读的时候被旧数据盖住（getLogin 是先读资产、再回退到这里的）。
+    if (await CredStore.save(user, pass)) {
+      await store.delete(KEY_USER);
+      await store.delete(KEY_PASS);
+      await store.delete(KEY_USER_ENC);
+      await store.delete(KEY_PASS_ENC);
+      await store.flush();
+      hilog.info(0x0001, 'PrefsStore', 'login saved (asset store)');
+      return true;
+    }
+    // 资产存储不可用（少见）：退回自己拼的 HUKS 加密
+    hilog.warn(0x0001, 'PrefsStore', 'asset store unavailable, try HUKS');
     let ok: boolean = await PrefsStore.tryStoreEncrypted(store, user, pass);
     if (!ok) {
       // 往返校验没过。最常见的原因是设备上那把密钥跟现在的参数对不上
@@ -124,14 +147,13 @@ export class PrefsStore {
       await CredVault.resetKey();
       ok = await PrefsStore.tryStoreEncrypted(store, user, pass);
     }
-    await store.put(KEY_ONBOARDED, true);
     if (ok) {
       await store.flush();
-      hilog.info(0x0001, 'PrefsStore', 'login saved (encrypted)');
+      hilog.info(0x0001, 'PrefsStore', 'login saved (huks)');
       return true;
     }
-    // 加密这条路不通：把四个键全清掉，一个字节的凭据都不留。
-    hilog.warn(0x0001, 'PrefsStore', 'encrypt unavailable, credentials NOT saved');
+    // 两条路都不通：一个字节的凭据都不留，绝不落明文
+    hilog.warn(0x0001, 'PrefsStore', 'no secure store available, credentials NOT saved');
     await store.delete(KEY_USER);
     await store.delete(KEY_PASS);
     await store.delete(KEY_USER_ENC);
@@ -175,6 +197,8 @@ export class PrefsStore {
   }
 
   static async clearLogin(ctx: common.UIAbilityContext): Promise<void> {
+    // 资产存储与 preferences 两处都要清：任一处留着都会让「退出登录」变成假的
+    await CredStore.clear();
     const store = await PrefsStore.getStore(ctx);
     await store.delete(KEY_USER);
     await store.delete(KEY_PASS);

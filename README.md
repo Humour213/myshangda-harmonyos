@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.23-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.24-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,34 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.24 — 2026-11-04
+
+真机测出来的结论很直白：勾上「记住密码」登录，提示「本机加密不可用，密码未保存」——
+也就是说 **存这一步从来没成功过**。0.2.23 里那把「删掉密钥重建再试」的重试也没救回来。
+
+回头看，0.2.21 及更早之所以「记得住」，是因为校验失败时会退回 preferences 存一份明文；
+0.2.22 掐掉明文兜底之后，这个功能就整体消失了。问题不在兜底，在于加密本身就没通。
+
+**一、账号密码改存系统的资产存储（Asset Store Kit）。** 新建 `common/CredStore.ets`，
+用 `asset.add` / `asset.query` / `asset.remove` 存取一条别名资产，内容是
+`{"user":"...","pass":"..."}` 的 UTF-8 字节，`ACCESSIBILITY` 取 `DEVICE_FIRST_UNLOCKED`
+（设备首次解锁后可读，不同步、不上云）。密钥由系统托管，应用只拿到别名，不需要也无法导出密钥材料。
+
+存取顺序变成：**资产存储 → 自己拼的 HUKS（保留作回退）→ 都不通就不存**。绝不写明文。
+`clearLogin` 两处都清，否则「退出登录」会变成假的；`migrateLegacy` 也改成把遗留明文迁进资产存储，
+迁完回读校验通过才删明文。
+
+**二、冷启动把凭据同时放进 AppStorage。** 各 tab 的自动登录先读自己那份（`aboutToAppear` 里异步读盘），
+读不到才看 `dsh_session_pass`。冷启动时页面有可能比读盘先加载完，缺这条兜底就会「明明记住了密码，
+却提示未登录」。
+
+**三、其余沿用 0.2.23**：登录失败按现场给原因（验证码 / 学校原话 / 没提交上去 / 空密码）、
+提交前重新断言输入框、不再因子页面被弹回就删凭据。
+
+> **验证要点**：登录成功时提示「登录成功，已记住账号密码」才算存下；
+> 杀后台再进应直接进主页。若仍提示「密码未保存」，说明这台设备的资产存储也不可用，
+> 看 `hilog -T CredStore` 里的 `asset add failed`。
 
 ### 0.2.23 — 2026-11-04
 
