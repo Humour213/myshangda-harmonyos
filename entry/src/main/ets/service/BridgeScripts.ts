@@ -529,40 +529,64 @@ export const PRESS_FEEDBACK_JS = `(function(){
     return 'ok';
   } catch (e) { return 'fail'; }
 })();`;
-
 /**
- * 「我的」页去重：把学校网页自带的「退出登录」和「APP分享」两个入口藏掉。
+ * 「我的」页去重：藏掉学校网页自带的「退出登录」「APP分享」，以及「推荐软件」整块。
  *
- * 为什么要藏：这两个入口是门户 H5 自己画的，不是我们写的 ArkTS 组件 ——
- * 我们只接住了点击之后的事（退出登录最终也走 `Session.confirmAndClear()`，
- * 和设置页底部那个按钮是同一条路）。而设置页里这两项都在，且更完整：
- * 「APP分享」在设置里同时给了官方版和社区版，网页那个只会跳 zfsoft 的安卓 APK
- * 下载页，鸿蒙上下了也装不上。所以网页那份是纯冗余 + 误导。
+ * 为什么要藏：这些全是门户 H5 自己画的，不是我们写的 ArkTS 组件。退出登录最终也走
+ * `Session.confirmAndClear()`，跟设置页底部那个按钮是同一条路；APP分享在设置里给了
+ * 官方版 + 社区版，网页那个只会跳 zfsoft 的安卓 APK 下载页，鸿蒙上装不上；
+ * 「推荐软件」是推广别的 App 的区块，跟本应用没关系。三样都是纯冗余。
  *
- * 怎么藏：不认 id / class，只认文案 —— 学校改版换 class 很常见，改文案不常见。
- * 比对前先把空白全去掉，兼容「APP 分享」「退出登陆」这类写法。
- * 找到文字后往上找「整行」容器一并隐藏，否则会留下一条空白行。
- * 往上爬的条件是「容器里除了这几个按钮没有别的字」，抓大了就退回只隐藏文字本身。
+ * 注入点：`WebTab` 的 `javaScriptOnDocumentStart`。0.2.28 挂在 `onPageEnd` 上，
+ * 杀后台走缓存恢复时 onPageEnd 可能很早就来过、或者来得比按钮渲染还早，而扫描窗口
+ * （4 秒）一过就收工 —— 用户「杀完后台立马点我的」正好落在窗口外面，于是还能看见。
+ * 挪到 document-start + 常驻 MutationObserver，节点插进 DOM 的那一下就会被标记。
+ *
+ * 两类目标，藏的范围不一样：
+ *   row   —— 单独一行（退出登录这种按钮）。往上找「这一行除了它没别的文案」的容器，
+ *            抓到就藏；抓大了退回只藏文字本身。
+ *   block —— 带内容的区块（推荐软件 = 标题 + 一串 App）。判据正好相反：标题的**同级里
+ *            还有带文字的兄弟**，说明它是区块标题，连标题带列表一起藏 ——
+ *            只藏标题会留下一截孤零零的 App 图标。
+ *
+ * 仍然不认 id / class，只认文案（学校改版换 class 常见、换文案不常见）。
+ * 字体图标（私有区字符）和箭头不算文案，否则 `<i class="icon">&#xe600;</i>退出登录`
+ * 这种最常见写法会被判成「这一行还有别的东西」而爬不上去。
+ *
+ * 诊断：第一次在 /my 页跑起来 1.5 秒后，把页面上「看着能点」的文字打到 console
+ * （会被 WebTab 的 onConsole 转到 hilog，tag = WebTabJS）。以后学校换文案导致没藏掉，
+ * 看这条 `[dsh-mine]` 日志就知道它现在叫什么，不用再猜。
  *
  * 安全边界：整段包在 try 里，匹配不到就什么都不做（最坏结果＝没生效，不会弄坏页面）；
- * 只在 `/my` 路径下跑，其它页面直接 return。
+ * 只在 /my 路径下跑，其它页面直接 return。
  */
 export const HIDE_MINE_EXTRA_JS = `(function(){
   try {
     var p = (location.pathname || '').toLowerCase();
     if (p.indexOf('/my') < 0) { return 'skip'; }
-    var NAMES = ['退出登录', '退出登陆', '退出', 'APP分享', 'App分享', '分享APP', 'APP分享给好友'];
+
+    // k = 认得的文案（去空白后全等）；m = 藏的范围
+    var RULES = [
+      { k: ['退出登录', '退出登陆', '退出'], m: 'row' },
+      { k: ['APP分享', 'App分享', '分享APP', 'APP分享给好友'], m: 'row' },
+      { k: ['推荐软件', '推荐应用', '应用推荐', '软件推荐'], m: 'block' }
+    ];
+
     function norm(t) { return String(t == null ? '' : t).replace(/[\\s\\u3000]+/g, ''); }
-    function hit(t) { var k = norm(t); return k !== '' && NAMES.indexOf(k) >= 0; }
-    // 字体图标、箭头这类「不是文案的字符」不算内容。H5 列表项普遍长成
-    // <i class="icon">&#xe600;</i><span>退出登录</span>，不滤掉的话这一行会被
-    // 判成「还放着别的东西」，于是只藏掉文字、留下图标和一个空行。
     function glyph(k) {
       return /^[\\uE000-\\uF8FF\\u2190-\\u21FF\\u25A0-\\u25FF\\u2022\\u00B7>»‹·•\\-—|]+$/.test(k);
     }
+    function ruleOf(t) {
+      var k = norm(t);
+      if (k === '') { return null; }
+      for (var i = 0; i < RULES.length; i++) {
+        if (RULES[i].k.indexOf(k) >= 0) { return RULES[i]; }
+      }
+      return null;
+    }
 
-    // 容器内的可见文字（只看叶子文本节点）。已隐藏的不统计，否则第二次扫描
-    // 会把「只剩一个按钮」的容器当成空容器，一路往上罩住别的内容。
+    // 容器内的可见文字（只看叶子文本节点）。已隐藏的不统计 —— 否则藏过一次之后
+    // 容器会显得"空了"，下一次扫描就会继续往上罩，一路罩到整页。
     function texts(root) {
       var out = [], w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), n;
       while ((n = w.nextNode())) {
@@ -589,11 +613,38 @@ export const HIDE_MINE_EXTRA_JS = `(function(){
         var ts = texts(pr);
         if (ts.length === 0) { break; }
         var other = 0;
-        for (var j = 0; j < ts.length; j++) { if (!hit(ts[j])) { other++; } }
+        for (var j = 0; j < ts.length; j++) { if (!ruleOf(ts[j])) { other++; } }
         if (other > 0) { break; }
         cur = pr;
       }
       return cur;
+    }
+
+    // 区块：标题的父容器里，除了标题这条分支，还有别的带文字的兄弟 —— 那就是它下面的内容。
+    // 只认第一次命中的容器，再往上就是整页了。
+    // 两个数量闸都是保险，宁可只藏标题，也不能把整页藏了：
+    //   sibs <= 8 —— 兄弟一多，说明这不是「标题 + 内容」，而是页面根容器把标题和一堆东西平铺在一起；
+    //   texts <= 40 —— 同理，文案条数多到这个程度已经不是区块了。
+    function blockOf(el) {
+      var cur = el;
+      for (var i = 0; i < 3 && cur && cur.parentElement; i++) {
+        var pr = cur.parentElement;
+        if (pr === document.body || pr === document.documentElement) { break; }
+        var sibs = 0;
+        try {
+          for (var j = 0; j < pr.children.length; j++) {
+            var ch = pr.children[j];
+            if (ch === cur) { continue; }
+            if (norm(ch.textContent) !== '') { sibs++; }
+          }
+        } catch (e) { sibs = 0; }
+        if (sibs > 0 && sibs <= 8) {
+          var ts = texts(pr);
+          if (ts.length <= 40) { return pr; }
+        }
+        cur = pr;
+      }
+      return null;
     }
 
     function hide(el) {
@@ -604,6 +655,13 @@ export const HIDE_MINE_EXTRA_JS = `(function(){
       return 1;
     }
 
+    function invisible(el) {
+      try {
+        var r = el.getBoundingClientRect();
+        return r.width === 0 && r.height === 0;
+      } catch (e) { return false; }
+    }
+
     function sweep() {
       var n = 0;
       var all = document.querySelectorAll('body *');
@@ -611,30 +669,67 @@ export const HIDE_MINE_EXTRA_JS = `(function(){
         var el = all[i];
         if (el.children && el.children.length > 0) { continue; }
         if (el.getAttribute && el.getAttribute('data-dsh-gone') === '1') { continue; }
-        if (!hit(el.textContent)) { continue; }
-        n += hide(rowOf(el));
+        if (invisible(el)) { continue; }
+        var r = ruleOf(el.textContent);
+        if (!r) { continue; }
+        n += hide(r.m === 'block' ? (blockOf(el) || rowOf(el)) : rowOf(el));
       }
       return n;
     }
 
-    if (window.__dshMineReady) { sweep(); return 'ok'; }
+    // 诊断：把「看着能点」的文字打出来。以后学校换文案导致没藏掉，看这条日志即可。
+    function dump() {
+      try {
+        var out = [], all = document.querySelectorAll('body *');
+        for (var i = 0; i < all.length && out.length < 60; i++) {
+          var e = all[i];
+          if (e.children && e.children.length > 0) { continue; }
+          var t = norm(e.textContent);
+          if (t === '' || t.length > 10 || glyph(t)) { continue; }
+          var ok = false;
+          try { ok = getComputedStyle(e).cursor === 'pointer'; } catch (x) {}
+          if (!ok && e.tagName && (e.tagName === 'A' || e.tagName === 'BUTTON')) { ok = true; }
+          if (!ok && e.parentElement) {
+            try { ok = getComputedStyle(e.parentElement).cursor === 'pointer'; } catch (x) {}
+          }
+          if (!ok) { continue; }
+          out.push(t);
+        }
+        console.log('[dsh-mine] n=' + out.length + ' |' + out.join('|') + '|');
+      } catch (e) {}
+    }
+
+    if (window.__dshMineReady) {
+      // document-start 已经跑过并挂好监听；onPageEnd 会再补注入一次
+      // （SPA 内部导航不会重跑 document-start），这里立刻补扫一遍就够了。
+      return 'ok:' + sweep();
+    }
     window.__dshMineReady = 1;
+
+    // document-start 阶段 documentElement / body 可能都还没长出来，
+    // 挂到 document 上，subtree 会覆盖之后出现的一切。
+    var root = document.documentElement || document;
+
+    // document-start 时 body 多半还没长出来，这一扫通常是空转；但缓存恢复、页面已经
+    // 渲染完才注入的情况（onPageEnd 补注入）就靠它立刻生效，不能省。
     sweep();
-    // 门户 H5 是懒渲染的，扫一次往往还没画出来。MutationObserver 兜住后续插入，
-    // 再用 10 轮定时补扫覆盖「靠改 class / 改内容」而不产生节点增删的情况。
+
     var timer = 0;
     function later() {
       if (timer) { return; }
-      timer = setTimeout(function(){ timer = 0; sweep(); }, 150);
+      timer = setTimeout(function(){ timer = 0; sweep(); }, 120);
     }
     try {
       var mo = new MutationObserver(later);
-      mo.observe(document.documentElement, { childList: true, subtree: true });
+      mo.observe(root, { childList: true, subtree: true });
     } catch (e) {}
-    var left = 10;
-    var iv = setInterval(function(){ sweep(); if (--left <= 0) { clearInterval(iv); } }, 400);
+
+    // 兜底补扫：有些框架靠改 class / 改 innerText 更新界面，不产生节点增删，
+    // MutationObserver 收不到。首屏这几轮把这种情况盖住，之后交给 observer 常驻。
+    var left = 12;
+    var iv = setInterval(function(){ sweep(); if (--left <= 0) { clearInterval(iv); } }, 350);
+
+    setTimeout(dump, 1500);
     return 'ok';
   } catch (e) { return 'fail'; }
 })();`;
-
-

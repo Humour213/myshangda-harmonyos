@@ -816,7 +816,12 @@ export struct WebTab {
               '*://myapp.zjgsu.edu.cn/*', '*://uia.zjgsu.edu.cn/*', '*://xym.zjgsu.edu.cn/*',
               '*://txl.zjgsu.edu.cn/*', '*://jwxt.zjgsu.edu.cn/*'
             ]
-          }
+          },
+          // 「我的」页去重脚本必须在这儿：文档开始解析就挂上监听，节点一插进 DOM 就被标记。
+          // 放在 onPageEnd 里会有两个窟窿 —— 杀后台走缓存恢复时 onPageEnd 可能早就不来了；
+          // 而它就算来了，也往往比按钮渲染还早，等扫描窗口一过，按钮才慢悠悠地长出来。
+          // 脚本自己会判断路径，非 /my 直接 return，所以只需限定门户域名。
+          { script: HIDE_MINE_EXTRA_JS, scriptRules: ['*://myapp.zjgsu.edu.cn/*'] }
         ])
         .onControllerAttached(() => {
           WebRegistry.put(this.tabId, this.controller);
