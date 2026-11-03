@@ -529,3 +529,112 @@ export const PRESS_FEEDBACK_JS = `(function(){
     return 'ok';
   } catch (e) { return 'fail'; }
 })();`;
+
+/**
+ * 「我的」页去重：把学校网页自带的「退出登录」和「APP分享」两个入口藏掉。
+ *
+ * 为什么要藏：这两个入口是门户 H5 自己画的，不是我们写的 ArkTS 组件 ——
+ * 我们只接住了点击之后的事（退出登录最终也走 `Session.confirmAndClear()`，
+ * 和设置页底部那个按钮是同一条路）。而设置页里这两项都在，且更完整：
+ * 「APP分享」在设置里同时给了官方版和社区版，网页那个只会跳 zfsoft 的安卓 APK
+ * 下载页，鸿蒙上下了也装不上。所以网页那份是纯冗余 + 误导。
+ *
+ * 怎么藏：不认 id / class，只认文案 —— 学校改版换 class 很常见，改文案不常见。
+ * 比对前先把空白全去掉，兼容「APP 分享」「退出登陆」这类写法。
+ * 找到文字后往上找「整行」容器一并隐藏，否则会留下一条空白行。
+ * 往上爬的条件是「容器里除了这几个按钮没有别的字」，抓大了就退回只隐藏文字本身。
+ *
+ * 安全边界：整段包在 try 里，匹配不到就什么都不做（最坏结果＝没生效，不会弄坏页面）；
+ * 只在 `/my` 路径下跑，其它页面直接 return。
+ */
+export const HIDE_MINE_EXTRA_JS = `(function(){
+  try {
+    var p = (location.pathname || '').toLowerCase();
+    if (p.indexOf('/my') < 0) { return 'skip'; }
+    var NAMES = ['退出登录', '退出登陆', '退出', 'APP分享', 'App分享', '分享APP', 'APP分享给好友'];
+    function norm(t) { return String(t == null ? '' : t).replace(/[\\s\\u3000]+/g, ''); }
+    function hit(t) { var k = norm(t); return k !== '' && NAMES.indexOf(k) >= 0; }
+    // 字体图标、箭头这类「不是文案的字符」不算内容。H5 列表项普遍长成
+    // <i class="icon">&#xe600;</i><span>退出登录</span>，不滤掉的话这一行会被
+    // 判成「还放着别的东西」，于是只藏掉文字、留下图标和一个空行。
+    function glyph(k) {
+      return /^[\\uE000-\\uF8FF\\u2190-\\u21FF\\u25A0-\\u25FF\\u2022\\u00B7>»‹·•\\-—|]+$/.test(k);
+    }
+
+    // 容器内的可见文字（只看叶子文本节点）。已隐藏的不统计，否则第二次扫描
+    // 会把「只剩一个按钮」的容器当成空容器，一路往上罩住别的内容。
+    function texts(root) {
+      var out = [], w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null), n;
+      while ((n = w.nextNode())) {
+        var k = norm(n.nodeValue);
+        if (k === '' || glyph(k)) { continue; }
+        var pe = n.parentElement;
+        if (pe && pe.offsetParent === null) { continue; }
+        out.push(k);
+      }
+      return out;
+    }
+
+    function rowOf(el) {
+      var cur = el;
+      for (var i = 0; i < 4 && cur && cur.parentElement; i++) {
+        var pr = cur.parentElement;
+        if (pr === document.body || pr === document.documentElement) { break; }
+        var wide = false;
+        try {
+          var r = pr.getBoundingClientRect();
+          wide = r.width >= window.innerWidth * 0.6 && r.height > 0;
+        } catch (e) { wide = false; }
+        if (!wide) { break; }
+        var ts = texts(pr);
+        if (ts.length === 0) { break; }
+        var other = 0;
+        for (var j = 0; j < ts.length; j++) { if (!hit(ts[j])) { other++; } }
+        if (other > 0) { break; }
+        cur = pr;
+      }
+      return cur;
+    }
+
+    function hide(el) {
+      if (!el || !el.style || !el.getAttribute) { return 0; }
+      if (el.getAttribute('data-dsh-gone') === '1') { return 0; }
+      el.setAttribute('data-dsh-gone', '1');
+      el.style.setProperty('display', 'none', 'important');
+      return 1;
+    }
+
+    function sweep() {
+      var n = 0;
+      var all = document.querySelectorAll('body *');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.children && el.children.length > 0) { continue; }
+        if (el.getAttribute && el.getAttribute('data-dsh-gone') === '1') { continue; }
+        if (!hit(el.textContent)) { continue; }
+        n += hide(rowOf(el));
+      }
+      return n;
+    }
+
+    if (window.__dshMineReady) { sweep(); return 'ok'; }
+    window.__dshMineReady = 1;
+    sweep();
+    // 门户 H5 是懒渲染的，扫一次往往还没画出来。MutationObserver 兜住后续插入，
+    // 再用 10 轮定时补扫覆盖「靠改 class / 改内容」而不产生节点增删的情况。
+    var timer = 0;
+    function later() {
+      if (timer) { return; }
+      timer = setTimeout(function(){ timer = 0; sweep(); }, 150);
+    }
+    try {
+      var mo = new MutationObserver(later);
+      mo.observe(document.documentElement, { childList: true, subtree: true });
+    } catch (e) {}
+    var left = 10;
+    var iv = setInterval(function(){ sweep(); if (--left <= 0) { clearInterval(iv); } }, 400);
+    return 'ok';
+  } catch (e) { return 'fail'; }
+})();`;
+
+

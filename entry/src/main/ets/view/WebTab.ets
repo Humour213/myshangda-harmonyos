@@ -13,7 +13,7 @@ import { common, Want, bundleManager } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { http, connection } from '@kit.NetworkKit';
 import { call } from '@kit.TelephonyKit';
-import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS } from '../service/BridgeScripts';
+import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS, HIDE_MINE_EXTRA_JS } from '../service/BridgeScripts';
 import { Router, WebRegistry } from '../common/Nav';
 import { PrefsStore, SavedLogin } from '../common/PrefsStore';
 import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, isSchoolUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
@@ -919,6 +919,15 @@ export struct WebTab {
             // 脚本自己带 __dshPressReady 守卫，重复注入是空操作。
             try {
               this.controller.runJavaScript(PRESS_FEEDBACK_JS);
+            } catch (e) {
+            }
+          }
+          // 「我的」页去重：网页自带的「退出登录」「APP分享」跟设置页里那两项重复，
+          // 而且网页那个分享跳的是 zfsoft 的安卓 APK 下载页，鸿蒙上下了也装不上。
+          // 脚本自己判断路径，不是 /my 开头立刻 return，所以往门户所有页面注入都没有副作用。
+          if (isPortalUrl(url)) {
+            try {
+              this.controller.runJavaScript(HIDE_MINE_EXTRA_JS);
             } catch (e) {
             }
           }
