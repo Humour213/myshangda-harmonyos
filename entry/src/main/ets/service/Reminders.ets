@@ -76,7 +76,9 @@ export class Reminders {
     if (!on) {
       hilog.info(DOMAIN, 'reminder', 'switch off, skip');
       const alive: number = await Reminders.aliveCount();
-      if (alive > 0) {
+      // alive 为 -1 表示读不到列表（未知），这种情况也要清一次，
+      // 宁可多发一次清空请求，也不要让关了开关的提醒继续响。
+      if (alive !== 0) {
         try {
           await Reminders.cancelAll();
         } catch (err) {
@@ -129,10 +131,25 @@ export class Reminders {
     // 这里不能先问 isNotificationEnabled —— 在这个场景下它会谎报「已开启」，
     // 于是永远走不到申请那一步，通知就一直关着，提醒全被系统拒掉。
     // 另外必须传 ctx：空参的重载从 API 12 起就废弃了，调了根本不弹框。
+    // 先把这个渠道建出来。
+    // 提醒到点是走通知发出来的，而系统在提醒配额那一步会先看应用有没有可用的通知渠道；
+    // 渠道不存在时它直接判定「notification not allowed」，再把配额算成 0 条
+    //（日志原文：ReminderControl ... notification not allowed / The number of reminders exceeds the limit[0]），
+    // 于是一条提醒也发不出去。重复调用是幂等的，已存在不会报错。
+    try {
+      await notificationManager.addSlot(notificationManager.SlotType.SOCIAL_COMMUNICATION);
+      hilog.info(DOMAIN, 'reminder', 'slot ready');
+    } catch (err) {
+      hilog.warn(DOMAIN, 'reminder', 'addSlot failed: %{public}s', Reminders.errText(err));
+    }
+
     try {
       await notificationManager.requestEnableNotification(ctx);
+      hilog.info(DOMAIN, 'reminder', 'notification granted');
     } catch (err) {
-      hilog.warn(DOMAIN, 'reminder', 'notification permission not granted');
+      // 用户点了「不允许」，或系统不再允许弹框（之前拒过一次就再也不弹）。
+      // 记下错误码，不然「提醒不响」永远只能靠猜。
+      hilog.warn(DOMAIN, 'reminder', 'requestEnableNotification failed: %{public}s', Reminders.errText(err));
     }
 
     const total: number = uniq.length;
@@ -214,7 +231,7 @@ export class Reminders {
     return fp;
   }
 
-  /** 系统里还挂着几条我们自己的提醒 */
+  /** 系统里还挂着几条我们自己的提醒；读不出来返回 -1（未知，不能当成 0） */
   private static async aliveCount(): Promise<number> {
     try {
       const list: reminderAgentManager.ReminderRequest[] = await reminderAgentManager.getValidReminders();
@@ -226,7 +243,12 @@ export class Reminders {
       }
       return n;
     } catch (err) {
-      return 0;
+      // 以前这里静默 return 0，后果很严重：读不到就当「一条都没有」，
+      // 于是每次进 App 都判定要重建 → 清不掉旧的（清空接口同样要读列表）→
+      // 再发一批新的 → 撞上系统 30 条上限，后半批全失败，界面上就是「提醒时有时无」。
+      // 现在明确区分「0 条」和「读不到」，读不到时只走清空 + 重发，并打日志。
+      hilog.warn(DOMAIN, 'reminder', 'aliveCount failed: %{public}s', Reminders.errText(err));
+      return -1;
     }
   }
 
@@ -244,6 +266,9 @@ export class Reminders {
       snoozeTimes: 0,
       timeInterval: 0,
       ringDuration: 1,
+      // 指定通知渠道。不指定时系统自己去查默认渠道，查不到就直接判「notification not allowed」，
+      // 然后按 0 条配额处理（日志里是 The number of reminders exceeds the limit[0]）。
+      slotType: notificationManager.SlotType.SOCIAL_COMMUNICATION,
       wantAgent: {
         pkgName: PKG_NAME,
         abilityName: 'EntryAbility'
@@ -258,9 +283,33 @@ export class Reminders {
     });
   }
 
-  /** 只取消我们自己发的提醒，不动用户自己的日历提醒 */
+  /**
+   * 清掉本应用发出去的全部提醒。
+   *
+   * 先用 cancelAllReminders()：它不需要逐条枚举 id，一次清空，最可靠。
+   * 这个应用只发布上课提醒，不会误删用户自己的日程提醒。
+   *
+   * 以前只走「getValidReminders() 拿列表 → 逐条 cancelReminder」这一条路，
+   * 而列表接口在个别设备上会抛错（日志里的 ReminderAgentService Read result failed），
+   * 一抛整批都删不掉，紧接着的 publish 就撞上「The number of reminders exceeds the limit」，
+   * 一条也发不出去。这里保留逐条删作为兜底，并记下真实错误。
+   */
   static async cancelAll(): Promise<void> {
-    const list: reminderAgentManager.ReminderRequest[] = await reminderAgentManager.getValidReminders();
+    try {
+      await reminderAgentManager.cancelAllReminders();
+      hilog.info(DOMAIN, 'reminder', 'cancelAllReminders ok');
+      return;
+    } catch (err) {
+      hilog.warn(DOMAIN, 'reminder', 'cancelAllReminders failed: %{public}s', Reminders.errText(err));
+    }
+    // 兜底：按标题逐条删（拿不到列表就什么也做不了，只能记日志）
+    let list: reminderAgentManager.ReminderRequest[] = [];
+    try {
+      list = await reminderAgentManager.getValidReminders();
+    } catch (err) {
+      hilog.warn(DOMAIN, 'reminder', 'list reminders failed: %{public}s', Reminders.errText(err));
+      return;
+    }
     for (let i = 0; i < list.length; i++) {
       const r: reminderAgentManager.ReminderRequest = list[i];
       if (r.title !== TITLE) {
@@ -274,5 +323,13 @@ export class Reminders {
         // 忽略单条失败
       }
     }
+  }
+
+  /** 把 BusinessError 变成一句能读的话，避免日志里只剩 [object Object] */
+  private static errText(err: Object): string {
+    const e = err as Record<string, Object>;
+    const code: Object | undefined = e === null || e === undefined ? undefined : e['code'];
+    const msg: Object | undefined = e === null || e === undefined ? undefined : e['message'];
+    return `${code === undefined ? '?' : String(code)} ${msg === undefined ? '' : String(msg)}`;
   }
 }
