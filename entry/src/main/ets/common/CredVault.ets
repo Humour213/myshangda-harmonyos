@@ -98,6 +98,25 @@ export class CredVault {
     return out;
   }
 
+  /**
+   * 删掉现有密钥并重新生成一把。
+   *
+   * 用在「加密完解不回来」的时候：同一套参数下，老密钥（可能是更早版本用别的参数生成的）
+   * 和现在的 initSession 对不上，往返校验就永远过不去，用户于是一直存不下密码。
+   * 丢掉一把解不开的密钥没有损失 —— 它对应的密文本来也解不回来。
+   */
+  static async resetKey(): Promise<void> {
+    const opts: huks.HuksOptions = { properties: [] };
+    try {
+      await huks.deleteKeyItem(CredVault.ALIAS, opts);
+      hilog.info(DOMAIN, TAG, 'key deleted, will regenerate');
+    } catch (err) {
+      hilog.info(DOMAIN, TAG, 'deleteKeyItem: %{public}s', CredVault.errText(err));
+    }
+    CredVault.keyReady = false;
+    await CredVault.ensureKey();
+  }
+
   /** 加密：返回 base64(nonce + 密文) */
   static async encrypt(plain: string): Promise<string> {
     try {

@@ -932,7 +932,7 @@ export struct WebTab {
               pass0 = sp;
             }
           }
-          if (isLoginUrl(url) && this.needLogin && pass0 !== '' && this.autoTries < 2) {
+          if (isLoginUrl(url) && this.needLogin && pass0 !== '' && this.autoTries < 3) {
             this.autoTries++;
             // 必须转义再拼进脚本。原来直接把密码塞进单引号里，密码带 ' 或 \ 时
             // 整段脚本是语法错误，自动登录永不提交，人也永远卡在 CAS 页。
@@ -952,13 +952,17 @@ export struct WebTab {
             if (pass0 === '') {
               this.errMsg = '未登录：门户需要统一身份认证，请在启动页登录后使用';
               this.showFallback = true;
-            } else if (this.autoTries >= 2) {
-              // 两轮自动登录都被打回登录页，说明账号密码没通过。
-              // 只在这里放个兜底页的话，用户会困在加载不出来的主界面上无路可走，
-              // 所以同时通知 Index 退回登录页去改密码。
+            } else if (this.autoTries >= 3) {
+              // 自动登录反复被送回登录页。
+              // 但「被弹回」不等于「账号密码错」——子服务（通讯录等）有自己的 SSO 入口，
+              // 它被弹回跟门户会话是否有效是两件事。以前任何 tab 都能把用户踹回登录页，
+              // 于是子服务一不兼容，整机就退登录（连带把记住的密码也删了）。
+              // 现在只有**门户首页**这一条路反复失败才认定凭据失效。
               this.errMsg = '账号或密码错误，请重新输入';
               this.showFallback = true;
-              this.onLoginFailed();
+              if (isPortalUrl(this.rootUrl) && this.scrapeSchedule) {
+                this.onLoginFailed();
+              }
             }
           }
           if (url.indexOf('/kb') >= 0 || url.toLowerCase().indexOf('schedule') >= 0) {

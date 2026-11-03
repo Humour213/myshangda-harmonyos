@@ -382,6 +382,7 @@ export const SCHEDULE_FIX_JS = `(function(){
 export const AUTO_LOGIN_JS = `(function(){
   try {
     if (window.__dshAutoDone) { return 'ok'; }
+    var U = '__DSH_USER__', P = '__DSH_PASS__';
     var u = document.getElementById('username');
     var p = document.getElementById('ppassword') || document.getElementById('password');
     if (!u || !p) { return 'no-form'; }
@@ -392,12 +393,18 @@ export const AUTO_LOGIN_JS = `(function(){
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
     };
-    setV(u, '__DSH_USER__');
-    setV(p, '__DSH_PASS__');
+    setV(u, U);
+    setV(p, P);
     // 等页面自己的 RSA 公钥（v2/getPubKey）就绪后再提交；过早点击会被 checkForm 的校验挡下且无任何报错
     var tries = 0;
     var submit = function(){
       try {
+        // 每轮提交前重新断言一次输入值。
+        // 这个登录页在 ready 里有一句 $("#ppassword").val($("#password").val())，
+        // 而 $("#password") 是新页面里的空隐藏域 —— 只要它比我们晚执行，刚填进去的密码就被清成空串，
+        // 提交上去等于空密码，服务器必然打回。表现就是「同一组密码刚才还能登，这次却说密码错」。
+        if (p.value !== P) { setV(p, P); }
+        if (u.value !== U) { setV(u, U); }
         var rsaReady = (typeof Modulus !== 'undefined' && Modulus) &&
           (typeof public_exponent !== 'undefined' && public_exponent);
         var cap = document.getElementById('kaptcha');
@@ -406,10 +413,17 @@ export const AUTO_LOGIN_JS = `(function(){
           var cs = window.getComputedStyle(cap);
           capVisible = cs.display !== 'none' && cs.visibility !== 'hidden';
         }
-        if (rsaReady && !capVisible) {
+        if (capVisible) {
+          // 验证码一露头就不能硬提交：checkForm 里会直接 return false，页面纹丝不动，
+          // 外面只会看到「一直没反应」，最后被当成密码错误。
+          window.__dshProbe = 'captcha';
+          return;
+        }
+        if (rsaReady) {
           var b = document.getElementById('dl');
           if (b) {
             b.click();
+            window.__dshProbe = 'submitted';
             console.log('[dsh] auto-login submitted');
           }
           return;
@@ -417,15 +431,51 @@ export const AUTO_LOGIN_JS = `(function(){
         if (tries++ < 30) {
           setTimeout(submit, 200);
         } else {
-          console.log('[dsh] auto-login blocked rsa=' + !!rsaReady + ' captcha=' + capVisible);
+          window.__dshProbe = 'blocked';
+          console.log('[dsh] auto-login blocked rsa=0');
         }
       } catch (e) {
+        window.__dshProbe = 'error';
         console.log('[dsh] auto-login error ' + e);
       }
     };
     setTimeout(submit, 150);
     return 'ok';
   } catch (e) { return 'err'; }
+})();`;
+
+/**
+ * 读回统一身份认证页的现场状态，用来给失败原因定性。
+ *
+ * 以前只要提交后被送回登录页，一律报「账号或密码错误」。但同一个 URL 底下可能是三件完全不同的事：
+ * 密码真的错、学校要求输验证码、脚本压根没提交上去。三种情况都翻译成同一句话，
+ * 用户除了反复重输没有任何可做的动作 —— 真正的验证码被说成密码错误，最误导。
+ *
+ * 返回 JSON：`e` 页面自己的错误文案（`#errormsg`）、`m` 另一种提示（`#msg`）、
+ * `c` 验证码是否可见、`s` 脚本自报的进度（submitted / captcha / blocked / error）、
+ * `u` 用户名框里还有几个字符、`p` 密码框里还有几个字符。
+ * 密码只报长度、不报内容。
+ */
+export const PROBE_STATE_JS = `(function(){
+  try {
+    var g = function(id){ var e = document.getElementById(id); return e ? (e.innerText || e.textContent || '') : ''; };
+    var cap = document.getElementById('kaptcha');
+    var vis = false;
+    if (cap) {
+      var cs = window.getComputedStyle(cap);
+      vis = cs.display !== 'none' && cs.visibility !== 'hidden';
+    }
+    var u = document.getElementById('username');
+    var p = document.getElementById('ppassword');
+    return JSON.stringify({
+      e: g('errormsg').replace(/\\s+/g, ' ').trim(),
+      m: g('msg').replace(/\\s+/g, ' ').trim(),
+      c: vis ? '1' : '0',
+      s: window.__dshProbe || '',
+      u: u ? String(u.value || '').length : 0,
+      p: p ? String(p.value || '').length : 0
+    });
+  } catch (x) { return '{}'; }
 })();`;
 
 // 点击反馈：门户页里的服务图标、列表项按下去原来毫无动静，点没点中全靠猜。

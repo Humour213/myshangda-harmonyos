@@ -5,7 +5,7 @@
  */
 import { TabDef, buildTabs, BASE_URL, CAS_LOGIN_URL, isLoginUrl, MOBILE_UA } from '../common/Constants';
 import { WebTab } from '../view/WebTab';
-import { AUTO_LOGIN_JS } from '../service/BridgeScripts';
+import { AUTO_LOGIN_JS, PROBE_STATE_JS } from '../service/BridgeScripts';
 import { webview } from '@kit.ArkWeb';
 import { Session } from '../service/Session';
 import { TabTitleBar } from '../view/TabTitleBar';
@@ -39,6 +39,52 @@ const DOCK_ROOTS: string[][] = [
 
 /** 主页在底栏里的下标（消息 0 / 审批 1 / 主页 2 / 通讯录 3 / 我的 4） */
 const HOME_TAB = 2;
+
+/**
+ * 校验网页失败时的现场状态（由 `PROBE_STATE_JS` 读回）。
+ *
+ * 存在的理由：提交后被送回登录页，**不等于**密码错。学校这套统一身份认证的登录页里，
+ * 「密码错」「要输验证码」「表单压根没提交」三种情况停在同一个 URL 上，
+ * 以前一律翻译成「账号或密码错误」，用户只能反复重输 —— 真正的验证码被说成密码错误最误导。
+ */
+class ProbeState {
+  /** 页面自己的错误文案（#errormsg） */
+  err: string = '';
+  /** 另一种提示（#msg） */
+  msg: string = '';
+  /** 验证码区域是否可见 */
+  captcha: boolean = false;
+  /** 注入脚本自报的进度：submitted / captcha / blocked / error / 空 */
+  step: string = '';
+  /** 用户名框里还剩几个字符 */
+  userLen: number = 0;
+  /** 密码框里还剩几个字符（只报长度，不报内容） */
+  passLen: number = 0;
+
+  /** 翻成一句人话 */
+  reason(): string {
+    if (this.captcha) {
+      return '学校这次要求输入验证码：请先用手机浏览器打开统一身份认证登录一次，再回来重试';
+    }
+    if (this.err !== '') {
+      return `学校提示：${this.err}`;
+    }
+    if (this.msg !== '') {
+      return `学校提示：${this.msg}`;
+    }
+    if (this.step === 'blocked') {
+      return '登录页没准备好（没拿到加密公钥），请稍后重试';
+    }
+    if (this.step === 'submitted') {
+      return '提交后学校没有回应，请检查网络后重试';
+    }
+    if (this.passLen === 0 && this.userLen > 0) {
+      return '密码没能填进登录框，请重试';
+    }
+    return '账号或密码错误，请重新输入';
+  }
+}
+
 /** 底栏浮起时的下边距（vp） */
 const BAR_MARGIN = 12;
 /**
@@ -741,7 +787,11 @@ struct Index {
     this.probeTimer = setTimeout(() => {
       this.probeTimer = -1;
       if (!this.probeSettled) {
-        this.finishProbe(false, '登录超时，请检查网络后重试');
+        this.probeStateThen((st: ProbeState) => {
+          const r: string = st.reason();
+          // 读不到现场（页面已经不在了）才退回笼统的超时文案
+          this.finishProbe(false, r === '账号或密码错误，请重新输入' ? '登录超时，请检查网络后重试' : r);
+        });
       }
     }, 30000);
     this.probeOn = true;
@@ -760,6 +810,47 @@ struct Index {
         this.finishProbe(false, '无法打开统一身份认证，请稍后重试');
       }
     }, 150);
+  }
+
+  /**
+   * 读一眼校验网页的现场状态，再交给回调下结论。
+   *
+   * 读不到（页面已经被销毁、脚本被拦）时给一个全空的状态，由 `ProbeState.reason()`
+   * 退回到笼统文案 —— 诊断信息可以缺，但不能因为读状态失败把用户卡在「登录中…」。
+   */
+  private probeStateThen(cb: (st: ProbeState) => void): void {
+    const st = new ProbeState();
+    let done: boolean = false;
+    const finish = (s: ProbeState): void => {
+      if (done) {
+        return;
+      }
+      done = true;
+      cb(s);
+    };
+    // Web 已经不在（组件被卸载）时 runJavaScript 会抛，别让按钮一直转
+    setTimeout(() => {
+      finish(st);
+    }, 2000);
+    try {
+      this.probeCtrl.runJavaScript(PROBE_STATE_JS).then((r: string) => {
+        try {
+          const o = JSON.parse(r) as Record<string, string>;
+          st.err = o['e'] ?? '';
+          st.msg = o['m'] ?? '';
+          st.captcha = (o['c'] ?? '0') === '1';
+          st.step = o['s'] ?? '';
+          st.userLen = Number.parseInt(o['u'] ?? '0', 10);
+          st.passLen = Number.parseInt(o['p'] ?? '0', 10);
+        } catch (e) {
+        }
+        finish(st);
+      }).catch(() => {
+        finish(st);
+      });
+    } catch (e) {
+      finish(st);
+    }
   }
 
   private onProbePageEnd(url: string): void {
@@ -784,8 +875,13 @@ struct Index {
       return;
     }
     if (stillLogin) {
-      // 提交之后又被送回登录页 —— 凭据没通过
-      this.finishProbe(false, '账号或密码错误，请重新输入');
+      // 提交之后又被送回登录页。原因可能不止「密码错」——可能是要验证码，
+      // 也可能是脚本根本没提交上去。先读一眼页面现场再下结论。
+      this.probeStateThen((st: ProbeState) => {
+        hilog.info(0x0001, 'Index', 'probe bounced: err=%{public}s msg=%{public}s captcha=%{public}s step=%{public}s u=%{public}d p=%{public}d',
+          st.err, st.msg, `${st.captcha}`, st.step, st.userLen, st.passLen);
+        this.finishProbe(false, st.reason());
+      });
       return;
     }
     // 已经离开统一身份认证，票据下发成功
@@ -866,9 +962,9 @@ struct Index {
     // 这里用 clearSession 而不是 clearAll：只是会话失效/密码错，离线课表和已排提醒留着，
     // 重新登录后卡片立刻就有内容，不用再等一次抓取。
     Session.clearSession();
-    const ctx = getContext(this) as common.UIAbilityContext;
-    PrefsStore.clearLogin(ctx).catch(() => {
-    });
+    // 注意：**不删已保存的账号密码**。以前这里会顺手 clearLogin，等于「自动登录失败一次就把凭据抹掉」——
+    // 而失败的判据只是「自动登录两轮都被送回登录页」，验证码、校园网抽风、学校临时限流都会命中，
+    // 代价却是用户从此失去记住密码。真错了也没关系：用户重新登录一次就会被覆盖掉。
     this.syncStatusBar();
     this.applyWindowStyle();
   }

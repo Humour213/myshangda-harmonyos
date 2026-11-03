@@ -5,6 +5,7 @@
  */
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { CredVault } from './CredVault';
 
 const PREF_NAME = 'dsh_prefs';
@@ -46,6 +47,10 @@ export class PrefsStore {
         if (l.user !== '' && l.pass !== '') {
           return l;
         }
+        // 有密文却解不回来：密钥被换过、或者当初写进去的就是解不开的。
+        // 这条日志是「记住密码突然失效」唯一能对得上的线索，别省。
+        hilog.warn(0x0001, 'PrefsStore', 'ciphertext present but decrypt failed: %{public}d/%{public}d chars',
+          l.user.length, l.pass.length);
       }
       // 旧版本留下的明文凭据：读出来顺手迁到密文。
       // 迁移**不能**走 saveLogin —— 那条路在加密不可用时会把四个键全清掉，
@@ -110,45 +115,63 @@ export class PrefsStore {
    */
   static async saveLogin(ctx: common.UIAbilityContext, user: string, pass: string): Promise<boolean> {
     const store = await PrefsStore.getStore(ctx);
-    // 加密失败就退回明文存储，保证「记住密码」这个功能本身不失效
-    let eu = '';
-    let ep = '';
-    try {
-      eu = await CredVault.encrypt(user);
-      ep = await CredVault.encrypt(pass);
-      // 立刻解一次做往返校验：HUKS 在某些设备/参数组合下会产出解不回来的密文，
-      // 那种情况不能写进去，否则用户下次启动读到空串，等于没记住。
-      if (eu === '' || ep === '') {
-        eu = '';
-        ep = '';
-      } else {
-        const vu = await CredVault.decrypt(eu);
-        const vp = await CredVault.decrypt(ep);
-        if (vu !== user || vp !== pass) {
-          eu = '';
-          ep = '';
-        }
-      }
-    } catch (e) {
-      eu = '';
-      ep = '';
+    let ok: boolean = await PrefsStore.tryStoreEncrypted(store, user, pass);
+    if (!ok) {
+      // 往返校验没过。最常见的原因是设备上那把密钥跟现在的参数对不上
+      // （早期版本的别名沿用到今天），删掉重建一把再试一次就能过。
+      // 这一步不丢任何有效数据 —— 此刻本来就没存成功。
+      hilog.warn(0x0001, 'PrefsStore', 'encrypt roundtrip failed, reset key and retry');
+      await CredVault.resetKey();
+      ok = await PrefsStore.tryStoreEncrypted(store, user, pass);
     }
     await store.put(KEY_ONBOARDED, true);
-    if (eu !== '' && ep !== '') {
-      await store.put(KEY_USER_ENC, eu);
-      await store.put(KEY_PASS_ENC, ep);
-      await store.delete(KEY_USER);
-      await store.delete(KEY_PASS);
+    if (ok) {
       await store.flush();
+      hilog.info(0x0001, 'PrefsStore', 'login saved (encrypted)');
       return true;
     }
     // 加密这条路不通：把四个键全清掉，一个字节的凭据都不留。
+    hilog.warn(0x0001, 'PrefsStore', 'encrypt unavailable, credentials NOT saved');
     await store.delete(KEY_USER);
     await store.delete(KEY_PASS);
     await store.delete(KEY_USER_ENC);
     await store.delete(KEY_PASS_ENC);
     await store.flush();
     return false;
+  }
+
+  /**
+   * 加密 + 往返校验 + 写盘，三步都过才算成功。
+   *
+   * 往返校验不能省：HUKS 在某些设备/参数组合下会产出解不回来的密文，
+   * 那种密文写进去等于没记住（下次读到空串）。宁可这次不存，也不能存一份解不开的。
+   */
+  private static async tryStoreEncrypted(store: preferences.Preferences, user: string,
+    pass: string): Promise<boolean> {
+    let eu = '';
+    let ep = '';
+    try {
+      eu = await CredVault.encrypt(user);
+      ep = await CredVault.encrypt(pass);
+      if (eu === '' || ep === '') {
+        return false;
+      }
+      const vu = await CredVault.decrypt(eu);
+      const vp = await CredVault.decrypt(ep);
+      if (vu !== user || vp !== pass) {
+        hilog.warn(0x0001, 'PrefsStore', 'roundtrip mismatch: got %{public}d/%{public}d chars',
+          vu.length, vp.length);
+        return false;
+      }
+    } catch (e) {
+      hilog.warn(0x0001, 'PrefsStore', 'encrypt threw');
+      return false;
+    }
+    await store.put(KEY_USER_ENC, eu);
+    await store.put(KEY_PASS_ENC, ep);
+    await store.delete(KEY_USER);
+    await store.delete(KEY_PASS);
+    return true;
   }
 
   static async clearLogin(ctx: common.UIAbilityContext): Promise<void> {
