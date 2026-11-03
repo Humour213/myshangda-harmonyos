@@ -16,7 +16,7 @@ import { call } from '@kit.TelephonyKit';
 import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS } from '../service/BridgeScripts';
 import { Router, WebRegistry } from '../common/Nav';
 import { PrefsStore, SavedLogin } from '../common/PrefsStore';
-import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
+import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, isSchoolUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
 import { CardSync } from '../service/CardSync';
 import { Opener } from '../service/Opener';
 import { Scanner } from '../service/Scanner';
@@ -710,7 +710,9 @@ export struct WebTab {
         .domStorageAccess(true)
         .databaseAccess(true)
         .zoomAccess(false)
-        .fileAccess(true)
+        // 只有本地 rawfile 页面需要访问文件系统；学校网页（http/https）一律关掉 file:// 访问。
+        // 原来固定 true，等于给外部网页开了读本地文件的通道，而门户用不到。
+        .fileAccess(!isHttpUrl(this.rootUrl))
         .onlineImageAccess(true)
         .darkMode(WebDarkMode.Off)
         .forceDarkAccess(false)
@@ -1070,9 +1072,19 @@ export struct WebTab {
           } catch (e) {
           }
         })
+        // 网页请求的敏感权限（摄像头 / 麦克风 / 定位 / 剪贴板）只给学校自己的域名。
+        // 原来是无条件 grant(getAccessibleResource())：页面被导航到任何第三方站点，
+        // 那个站点张口要摄像头也是一句话就拿到，用户完全不会被告知。
         .onPermissionRequest((event) => {
           try {
-            event.request.grant(event.request.getAccessibleResource());
+            // 请求来源要从 request 上取（OnPermissionRequestEvent 本身只有 request 一个字段）
+            const origin: string = event.request.getOrigin();
+            if (isSchoolUrl(origin)) {
+              event.request.grant(event.request.getAccessibleResource());
+            } else {
+              hilog.warn(DOMAIN, TAG, 'deny permission for %{public}s', origin);
+              event.request.deny();
+            }
           } catch (e) {
             event.request.deny();
           }

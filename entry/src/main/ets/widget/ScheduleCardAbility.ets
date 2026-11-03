@@ -9,6 +9,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { ScheduleData, CourseItem } from '../common/ScheduleTypes';
 import { parseSchedule } from '../service/ScheduleParse';
+import { PERIOD_START, PERIOD_END } from '../common/Periods';
 
 /**
  * 卡片数据，一套数据供两族卡片渲染：
@@ -59,16 +60,7 @@ class CardData {
   t7: string = ''; n7: string = ''; p7: string = ''; f7: string = '';
 }
 
-/** 每一节的起止时间（学校作息）。注意课表里的 start 是"第几节"，不是两节一组 */
-const PERIOD_START: string[] = [
-  '08:05', '08:50', '09:50', '10:40', '11:30', '13:40',
-  '14:35', '15:30', '16:25', '18:30', '19:25', '20:20'
-];
-
-const PERIOD_END: string[] = [
-  '08:50', '09:35', '10:35', '11:25', '12:15', '14:25',
-  '15:20', '16:15', '17:10', '19:15', '20:10', '21:05'
-];
+/** 每一节的起止时间（学校作息）统一放在 common/Periods.ets，提醒模块也用同一份 */
 
 const FG: string[] = ['#1E63B4', '#12806A', '#2B57C6', '#B4531A', '#5A3EBA',
   '#3F7A22', '#B02A2A', '#8A5B00'];

@@ -47,13 +47,15 @@ export class PrefsStore {
           return l;
         }
       }
-      // 旧版本明文凭据：读出来顺手迁移到密文
+      // 旧版本留下的明文凭据：读出来顺手迁到密文。
+      // 迁移**不能**走 saveLogin —— 那条路在加密不可用时会把四个键全清掉，
+      // 等于在这次启动里把用户唯一的凭据抹了；这里用非破坏性的 migrateLegacy。
       const user = (await store.get(KEY_USER, '')) as string;
       const pass = (await store.get(KEY_PASS, '')) as string;
       if (user !== '' && pass !== '') {
         l.user = user;
         l.pass = pass;
-        PrefsStore.saveLogin(ctx, user, pass).catch(() => {
+        PrefsStore.migrateLegacy(ctx).catch(() => {
         });
       }
       return l;
@@ -62,7 +64,51 @@ export class PrefsStore {
     }
   }
 
-  static async saveLogin(ctx: common.UIAbilityContext, user: string, pass: string): Promise<void> {
+  /**
+   * 把遗留的明文凭据迁移成密文，返回是否迁移成功。
+   *
+   * 迁不动（本机 HUKS 不可用）时原样保留明文，先保住自动登录；
+   * 等用户下次真正登录时再由 saveLogin 统一处理（那时能加密就加密，不能就不存）。
+   */
+  static async migrateLegacy(ctx: common.UIAbilityContext): Promise<boolean> {
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      const user = (await store.get(KEY_USER, '')) as string;
+      const pass = (await store.get(KEY_PASS, '')) as string;
+      if (user === '' || pass === '') {
+        return false;
+      }
+      const eu = await CredVault.encrypt(user);
+      const ep = await CredVault.encrypt(pass);
+      if (eu === '' || ep === '') {
+        return false;
+      }
+      // 往返校验通过才落盘，否则明文先留着
+      if ((await CredVault.decrypt(eu)) !== user || (await CredVault.decrypt(ep)) !== pass) {
+        return false;
+      }
+      await store.put(KEY_USER_ENC, eu);
+      await store.put(KEY_PASS_ENC, ep);
+      await store.delete(KEY_USER);
+      await store.delete(KEY_PASS);
+      await store.flush();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * 保存账号密码。**加密不可用时宁可不存，也不落明文**，返回是否真的存下了。
+   *
+   * 以前加密失败会退回到 preferences 明文存一份，理由是「保证记住密码这个功能不失效」。
+   * 这个取舍是错的：preferences 是应用沙箱里的普通文件，能被备份、能被三方工具读到，
+   * 而这里存的是统一身份认证的密码 —— 一旦泄露，学生所有校内系统（教务、邮箱、一卡通）都跟着失守。
+   * 现在改成失败就不存，界面上如实告诉用户「密码没记住」。
+   *
+   * 注意：调用方要处理返回 false 的情况，不能一律提示「已记住账号密码」。
+   */
+  static async saveLogin(ctx: common.UIAbilityContext, user: string, pass: string): Promise<boolean> {
     const store = await PrefsStore.getStore(ctx);
     // 加密失败就退回明文存储，保证「记住密码」这个功能本身不失效
     let eu = '';
@@ -71,7 +117,7 @@ export class PrefsStore {
       eu = await CredVault.encrypt(user);
       ep = await CredVault.encrypt(pass);
       // 立刻解一次做往返校验：HUKS 在某些设备/参数组合下会产出解不回来的密文，
-      // 那种情况宁可不加密，也不能让用户每次启动都要重新输密码。
+      // 那种情况不能写进去，否则用户下次启动读到空串，等于没记住。
       if (eu === '' || ep === '') {
         eu = '';
         ep = '';
@@ -87,21 +133,22 @@ export class PrefsStore {
       eu = '';
       ep = '';
     }
+    await store.put(KEY_ONBOARDED, true);
     if (eu !== '' && ep !== '') {
       await store.put(KEY_USER_ENC, eu);
       await store.put(KEY_PASS_ENC, ep);
       await store.delete(KEY_USER);
       await store.delete(KEY_PASS);
-    } else {
-      // 走明文兜底时必须把旧密文删掉。getLogin 是优先读密文的，
-      // 不删的话新密码会被旧密文遮住 —— 明明刚改了密码，读出来还是上一次那个。
-      await store.put(KEY_USER, user);
-      await store.put(KEY_PASS, pass);
-      await store.delete(KEY_USER_ENC);
-      await store.delete(KEY_PASS_ENC);
+      await store.flush();
+      return true;
     }
-    await store.put(KEY_ONBOARDED, true);
+    // 加密这条路不通：把四个键全清掉，一个字节的凭据都不留。
+    await store.delete(KEY_USER);
+    await store.delete(KEY_PASS);
+    await store.delete(KEY_USER_ENC);
+    await store.delete(KEY_PASS_ENC);
     await store.flush();
+    return false;
   }
 
   static async clearLogin(ctx: common.UIAbilityContext): Promise<void> {

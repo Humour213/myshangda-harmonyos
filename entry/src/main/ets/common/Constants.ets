@@ -180,3 +180,23 @@ export function hostIs(url: string, host: string): boolean {
   const h: string = hostOf(url);
   return h === host || h.startsWith(`${host}:`);
 }
+
+/** 去掉端口，只留主机名 */
+function bareHost(url: string): string {
+  const h: string = hostOf(url);
+  const i: number = h.indexOf(':');
+  return i >= 0 ? h.substring(0, i) : h;
+}
+
+/**
+ * 是不是学校自己的域名（`zjgsu.edu.cn` 及其子域）。
+ *
+ * 给「网页能向原生要什么」这类判断用：只有自家页面才配拿到摄像头、麦克风、
+ * 定位这些敏感权限。不要写成 `url.includes('zjgsu')` —— `https://zjgsu.evil.com`
+ * 和 `https://evil.com/#zjgsu.edu.cn` 都会命中。
+ */
+export function isSchoolUrl(url: string): boolean {
+  const h: string = bareHost(url);
+  return h === 'zjgsu.edu.cn' || h.endsWith('.zjgsu.edu.cn');
+}
+

@@ -10,6 +10,8 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { CourseItem, ScheduleData } from '../common/ScheduleTypes';
 import { PrefsStore } from '../common/PrefsStore';
+import { PERIOD_START } from '../common/Periods';
+import { uniqueCourses, courseFingerprint, countableCount } from './ReminderPlan';
 
 const DOMAIN = 0x0000;
 /** 提前几分钟提醒 */
@@ -25,12 +27,6 @@ const TITLE: string = '上课提醒';
 const PKG_NAME: string = 'com.humour.myshangda';
 /** 课表指纹，用来判断提醒需不需要重建 */
 const KEY_FP: string = 'reminder_fp';
-
-/** 每一节的开始时间（和桌面卡片保持一致） */
-const PERIOD_START: string[] = [
-  '08:05', '08:50', '09:50', '10:40', '11:30', '13:40',
-  '14:35', '15:30', '16:25', '18:30', '19:25', '20:20'
-];
 
 /**
  * 课表 → 按周重复的上课提醒。
@@ -87,8 +83,8 @@ export class Reminders {
       }
       return;
     }
-    const uniq: CourseItem[] = Reminders.unique(data.courses);
-    const fp: string = Reminders.fingerprint(uniq);
+    const uniq: CourseItem[] = uniqueCourses(data.courses);
+    const fp: string = courseFingerprint(uniq);
 
     let store: preferences.Preferences | null = null;
     let oldFp: string = '';
@@ -104,13 +100,7 @@ export class Reminders {
     // 判据必须是「现存条数 >= 应发条数」，不能只判 alive > 0：
     // 实际丢失是渐进的（撞上限被挤掉、单条发布失败、用户在时钟里删掉几条），
     // 只要还剩一条，alive > 0 就会一直判定「还活着」，缺的那几门永远补不回来。
-    let expect: number = 0;
-    for (let i = 0; i < uniq.length; i++) {
-      const idx: number = uniq[i].start - 1;
-      if (idx >= 0 && idx < PERIOD_START.length) {
-        expect++;
-      }
-    }
+    let expect: number = countableCount(uniq);
     if (expect > MAX_REMINDERS) {
       expect = MAX_REMINDERS;
     }
@@ -197,39 +187,9 @@ export class Reminders {
   }
 
   /**
-   * 同一格（星期 + 节次）只留一门课。
-   * 单双周会在同一格里叠两门课，提醒只需要响一次，重复发会被系统当成骚扰。
+   * 去重、指纹、可发条数这类**纯策略**已经搬到 service/ReminderPlan.ets ——
+   * 那里不碰系统 API，可以单测；这里只负责调用系统和落盘。
    */
-  private static unique(courses: CourseItem[]): CourseItem[] {
-    const out: CourseItem[] = [];
-    const seen: string[] = [];
-    for (let i = 0; i < courses.length; i++) {
-      const c: CourseItem = courses[i];
-      const key: string = c.day + '-' + c.start;
-      if (seen.indexOf(key) >= 0) {
-        continue;
-      }
-      seen.push(key);
-      out.push(c);
-    }
-    // 按时间排好，条数超上限时截断才不会漏掉周一的课
-    out.sort((a: CourseItem, b: CourseItem): number => {
-      if (a.day !== b.day) {
-        return a.day - b.day;
-      }
-      return a.start - b.start;
-    });
-    return out;
-  }
-
-  private static fingerprint(courses: CourseItem[]): string {
-    let fp: string = '';
-    for (let i = 0; i < courses.length; i++) {
-      const c: CourseItem = courses[i];
-      fp += c.day + ':' + c.start + ':' + c.name + ':' + c.place + ';';
-    }
-    return fp;
-  }
 
   /** 系统里还挂着几条我们自己的提醒；读不出来返回 -1（未知，不能当成 0） */
   private static async aliveCount(): Promise<number> {

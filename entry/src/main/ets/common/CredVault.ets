@@ -4,7 +4,12 @@
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
 import { huks } from '@kit.UniversalKeystoreKit';
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
+import { hilog } from '@kit.PerformanceAnalysisKit';
+
+const DOMAIN = 0x0000;
+const TAG = 'CredVault';
 
 /**
  * 账号密码的本地加密存储。
@@ -55,9 +60,34 @@ export class CredVault {
     try {
       await huks.generateKeyItem(CredVault.ALIAS, opts);
     } catch (err) {
-      // 密钥已存在时会抛错，属正常情况
+      // 密钥已存在时会抛错，属正常情况。但也可能是真的失败（权限、参数不被支持），
+      // 那种情况后面 initSession 一定失败 —— 所以错误码要留下来，不然只能看到「密码没记住」。
+      hilog.info(DOMAIN, TAG, 'generateKeyItem returned: %{public}s', CredVault.errText(err));
     }
     CredVault.keyReady = true;
+  }
+
+  /**
+   * 12 字节随机 nonce。
+   *
+   * 必须用系统的密码学随机源。之前用的是 Math.random()，它是伪随机、
+   * 同一次启动内的序列可预测；而 GCM 一旦 nonce 重复，两条密文的异或会泄露明文关系，
+   * 严重的能直接恢复出明文 —— 等于白加密。
+   */
+  private static randomNonce(): Uint8Array {
+    const blob: cryptoFramework.DataBlob = cryptoFramework.createRandom().generateRandomSync(12);
+    return new Uint8Array(blob.data);
+  }
+
+  /** 把 BusinessError 压成一句「码 + 原因」，避免日志里只剩 [object Object] */
+  private static errText(err: Object): string {
+    const e = err as Record<string, Object>;
+    if (e === null || e === undefined) {
+      return 'unknown';
+    }
+    const code: Object | undefined = e['code'];
+    const msg: Object | undefined = e['message'];
+    return `${code === undefined ? '?' : String(code)} ${msg === undefined ? '' : String(msg)}`;
   }
 
   /** 把明文补齐到 16 字节的整数倍（HUKS 的 NONE 填充要求） */
@@ -70,25 +100,27 @@ export class CredVault {
 
   /** 加密：返回 base64(nonce + 密文) */
   static async encrypt(plain: string): Promise<string> {
-    await CredVault.ensureKey();
-    const b64 = new util.Base64Helper();
-    const raw: Uint8Array = new util.TextEncoder().encodeInto(plain);
-    const data: Uint8Array = CredVault.pad(raw);
-    const nonce = new Uint8Array(12);
-    for (let i = 0; i < 12; i++) {
-      nonce[i] = Math.floor(Math.random() * 256);
+    try {
+      await CredVault.ensureKey();
+      const b64 = new util.Base64Helper();
+      const raw: Uint8Array = new util.TextEncoder().encodeInto(plain);
+      const data: Uint8Array = CredVault.pad(raw);
+      const nonce: Uint8Array = CredVault.randomNonce();
+      const opts: huks.HuksOptions = {
+        properties: CredVault.props(huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_ENCRYPT, nonce),
+        inData: data
+      };
+      const handle: huks.HuksSessionHandle = await huks.initSession(CredVault.ALIAS, opts);
+      const result: huks.HuksReturnResult = await huks.finishSession(handle.handle, opts);
+      const cipher: Uint8Array = result.outData as Uint8Array;
+      const merged = new Uint8Array(12 + cipher.length);
+      merged.set(nonce, 0);
+      merged.set(cipher, 12);
+      return b64.encodeToStringSync(merged);
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'encrypt failed: %{public}s', CredVault.errText(err));
+      throw err as Error;
     }
-    const opts: huks.HuksOptions = {
-      properties: CredVault.props(huks.HuksKeyPurpose.HUKS_KEY_PURPOSE_ENCRYPT, nonce),
-      inData: data
-    };
-    const handle: huks.HuksSessionHandle = await huks.initSession(CredVault.ALIAS, opts);
-    const result: huks.HuksReturnResult = await huks.finishSession(handle.handle, opts);
-    const cipher: Uint8Array = result.outData as Uint8Array;
-    const merged = new Uint8Array(12 + cipher.length);
-    merged.set(nonce, 0);
-    merged.set(cipher, 12);
-    return b64.encodeToStringSync(merged);
   }
 
   /** 解密：入参为 base64(nonce + 密文)，失败返回空串 */
@@ -118,6 +150,7 @@ export class CredVault {
       }
       return new util.TextDecoder('utf-8').decodeToString(out.slice(0, end));
     } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'decrypt failed: %{public}s', CredVault.errText(err));
       return '';
     }
   }

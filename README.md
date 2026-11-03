@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.21-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.22-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,68 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.22 — 2026-11-03
+
+这一版没有新功能，全部是之前记在待办上的欠账：五处真缺陷、三处工程债。同时把版本号往上抬一格 ——
+从这一版起一个功能批次升一次，覆盖安装才不会被判降级（`versionCode` 不递增会报 downgrade，
+只能靠 `hdc install -d` 强降），出问题也能按版本回溯。
+
+**一、凭据加密的 nonce 换了随机源。** 原来用 `Math.random()` 生成 12 字节的 GCM nonce。
+它是伪随机，且同一次启动内的序列可预测；而 GCM 一旦 nonce 重复，两条密文的异或就直接泄露明文关系，
+严重的能恢复出明文 —— 加密等于白做。改用 `cryptoFramework.createRandom().generateRandomSync(12)`。
+顺带把 `encrypt` / `decrypt` 各自包了 try/catch 并写日志，失败不再无声无息地返回空串。
+
+**二、加密不可用时不再退回明文存密码。** 原来 HUKS 不可用会在 `preferences` 里明文存一份，
+理由是「保证记住密码这个功能不失效」。这个取舍是错的：`preferences` 是沙箱里的普通文件，能被备份、
+能被三方工具读到，而这里存的是统一身份认证的密码 —— 泄露一次，教务、邮箱、一卡通跟着全失守。
+
+- `saveLogin` 改为返回「是否真的存下了」。存不下就把四个键全清掉，一个字节的凭据都不留。
+- 登录成功的提示跟着分叉：「登录成功，已记住账号密码」/「登录成功，本机加密不可用，密码未保存」
+  （后者停 2.6 秒，够看清），不再一律说「已记住」。
+- 老版本留下的明文凭据改走新加的 `migrateLegacy()`：能加密才迁移、往返校验通过才落盘、
+  迁不动就原样留着先保住自动登录。**不能**复用 `saveLogin` —— 那条路在加密失败时会把四个键全删，
+  等于在这次启动里把用户唯一的一份凭据抹了。
+
+**三、网页要权限，只给学校自己的域名。** `onPermissionRequest` 原来是无条件
+`grant(getAccessibleResource())`：页面一旦被导航到第三方站点，那边张口要摄像头、麦克风、定位，
+也是一句话就拿到，用户完全不会被告知。现在按来源判断 —— 新增的 `isSchoolUrl()` 只看主机名是否为
+`zjgsu.edu.cn` 或其子域（去端口后精确比较，`https://zjgsu.evil.com`、`https://evil.com/#zjgsu.edu.cn`
+这类子串伎俩过不了），是才授予，否则 `deny()` 并记日志。注意 `OnPermissionRequestEvent` 本身只有
+`request` 一个字段，来源得从 `request.getOrigin()` 取，`event.origin` 不存在。
+
+**四、学校网页关掉 `file://` 访问。** `.fileAccess(true)` 原来是写死的，等于给每个加载的网页开了
+读本地文件的通道，而门户根本用不到。改成 `.fileAccess(!isHttpUrl(this.rootUrl))`：只有本地 `rawfile`
+页面（首次启动的隐私声明、加载失败页）需要这一项，http/https 一律关。
+
+**五、协议勾选不再替用户预勾。** 退出登录回到登录页时 `agreeTerms` 被设成 `true`，
+「我已阅读并同意《用户协议》」已经是勾好的状态，用户点一下登录就等于默认同意。这类同意必须由用户
+主动做出，改成 `false`。
+
+**六、作息表收归一处。** `PERIOD_START` 之前在三处各写一份（`Reminders.ets`、`ScheduleCardAbility.ets`、
+以及解析侧隐含的节次数），改一处忘一处就会出现「提醒时间和卡片显示对不上」。现在统一到
+`common/Periods.ets`：起止时间表 + `toMinutes()` / `startOf()` / `endOf()`，其余文件只 import。
+
+**七、学期与周次真正用上。** 抓课表时 `term` 和 `week` 一直在解析、一直在落盘，界面上却从没出现过，
+等于白抓。设置页「上课提醒」下面新增「当前学期」一行，显示周次简称（如「第八周」），点一下 toast
+出完整区间。没有课表缓存时整行不出现，不留一个空壳。
+
+**八、补了 18 个业务单测。** 之前 `entry/src/test/` 只有一个模板用例（断言 `1+1=2`），跑绿等于没测。
+现在三个 suite、18 个用例，都咬着纯函数：
+
+| suite | 用例数 | 覆盖 |
+| --- | :---: | --- |
+| `parseSchedule` | 6 | 空串 / 非 JSON 不抛异常 / 还原 `runJavaScript` 外层引号与转义 / `courses` 缺失 / 无课名条目丢弃 / 缺省字段兜底 |
+| `periods` | 6 | 起止表长度一致 / `toMinutes` 换算与坏输入 / `startOf` 越界 / `endOf` 跨节与越界 |
+| `reminderPlan` | 6 | 同格只留第一门 / 先星期后节次排序 / 指纹同内容同值、换教室即变、与顺序无关 / 节次越界不计入可发条数 |
+
+`reminderPlan` 那组是给提醒服务的：去重和排序决定了「撞 30 条上限时先截掉哪一段」，排序错了被截掉的
+会是周一。`hvigor test` 三套全绿。
+
+**九、真机验证。** 覆盖安装后冷启动直接进「我的」，自动登录正常、无需重新输密码；设置页版本显示
+`V0.2.22`，「当前学期」显示 `第八周`，点开提示 `2026-2027 第一学期 · 第八周 (2026-11-02 ~ 2026-11-06)`。
+权限授予与 `fileAccess` 这两处是收紧策略，本机只复测了门户页加载与登录流程正常 ——
+扫码、定位、附件下载这几条依赖权限或本地文件的能力**没有逐一复测**，留待下次回归一起过。
 
 ### 0.2.21 — 2026-10-28
 
@@ -434,9 +496,9 @@
 ├── entry/
 │   ├── src/main/
 │   │   ├── ets/
-│   │   │   ├── common/           # 常量、路由、原生 API、Preferences、课表类型、凭据保险箱
+│   │   │   ├── common/           # 常量、路由、原生 API、Preferences、课表类型、作息表、凭据保险箱
 │   │   │   ├── pages/            # 登录、首页、消息、审批、我的、设置、子页、社区适配
-│   │   │   ├── service/          # 注入脚本（Android 桥、自动登录、网络缓存）、课表抓取、附件打开、扫码
+│   │   │   ├── service/          # 注入脚本（Android 桥、自动登录、网络缓存）、课表抓取、提醒排布、附件打开、扫码
 │   │   │   ├── view/             # 标题栏、底栏、WebTab 等组件
 │   │   │   └── widget/           # 课表桌面卡片（FormExtensionAbility + 三种尺寸 UI）
 │   │   ├── resources/            # 图片、颜色、隐私与协议页面

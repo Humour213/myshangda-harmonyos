@@ -212,7 +212,10 @@ struct Index {
     this.gatePass = '';
     this.gateBusy = false;
     this.gateError = '';
-    this.agreeTerms = true;
+    // 协议勾选不能替用户预勾上。原来这里写的是 true，退出登录后再回到登录页，
+    // 「我已阅读并同意《用户协议》」已经是勾好的状态，用户只要点登录就等于默认同意，
+    // 这类同意必须是用户主动做出的。
+    this.agreeTerms = false;
     this.wasLoggedOut = true;
     // 退出登录不保留现场：重新登录后落在主页
     this.currentTab = HOME_TAB;
@@ -813,9 +816,14 @@ struct Index {
     const u = this.pendingUser;
     const p = this.pendingPass;
     if (this.rememberPw) {
-      // 到这一步凭据已被门户认过，才会被记住
-      await PrefsStore.saveLogin(ctx, u, p);
-      promptAction.showToast({ message: '登录成功，已记住账号密码', duration: 1500 });
+      // 到这一步凭据已被门户认过，才会被记住。
+      // 返回值是「真的加密存下了吗」—— HUKS 不可用时返回 false，此时不退回明文，
+      // 界面必须如实说明，不能让用户以为记住了、下次启动却发现没有。
+      const stored: boolean = await PrefsStore.saveLogin(ctx, u, p);
+      promptAction.showToast({
+        message: stored ? '登录成功，已记住账号密码' : '登录成功，本机加密不可用，密码未保存',
+        duration: stored ? 1500 : 2600
+      });
     } else {
       await PrefsStore.clearLogin(ctx);
       promptAction.showToast({ message: '登录成功', duration: 1500 });

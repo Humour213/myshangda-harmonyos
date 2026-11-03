@@ -29,6 +29,12 @@ export struct SettingsPage {
   @State appVersion: string = '';
   /** 上课提醒开关。默认开 —— 这功能本来就有，这里给的是「关掉」的选择权 */
   @State remindOn: boolean = true;
+  /** 学期与周次。课表抓取时一起拿到，以前只存不显示，等于白抓 */
+  @State termText: string = '';
+  /** 周次简称，如「第八周」，放不下完整区间 */
+  @State weekShort: string = '';
+  /** 周次完整文案，点一下能看到区间 */
+  @State weekFull: string = '';
 
   aboutToAppear(): void {
     try {
@@ -41,6 +47,12 @@ export struct SettingsPage {
     PrefsStore.isRemindOn(ctx).then((on: boolean) => {
       this.remindOn = on;
     });
+    // 学期/周次取自课表缓存（抓取时一并解析出来的），没有缓存就不显示这一行
+    const d: ScheduleData = CardSync.load(ctx);
+    this.termText = d.term;
+    this.weekFull = d.week;
+    const sp: number = d.week.indexOf(' ');
+    this.weekShort = sp > 0 ? d.week.substring(0, sp) : d.week;
   }
 
   /**
@@ -215,6 +227,18 @@ export struct SettingsPage {
                 onChange: (v: boolean) => {
                   this.toggleReminder(v);
                 }
+              })
+            }
+            // 学期与周次：课表抓取时本来就解析出来了，之前只存不显示。
+            // 没有课表缓存时整行不出现，免得显示一个空壳。
+            if (this.weekShort !== '' || this.termText !== '') {
+              this.settingDivider()
+              this.settingRow('当前学期', this.weekShort !== '' ? this.weekShort : this.termText, () => {
+                const detail: string = this.weekFull !== '' ? this.weekFull : this.termText;
+                promptAction.showToast({
+                  message: `${this.termText}${detail !== '' ? ' · ' + detail : ''}`,
+                  duration: 2600
+                });
               })
             }
           }
