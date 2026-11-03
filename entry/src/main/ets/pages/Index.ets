@@ -20,6 +20,7 @@ import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC } from '../common/PrefsStore';
 import { preferences } from '@kit.ArkData';
 import { promptAction } from '@kit.ArkUI';
+import { router } from '@kit.ArkUI';
 import { window } from '@kit.ArkUI';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { common } from '@kit.AbilityKit';
@@ -111,9 +112,16 @@ const CLASSIC_BAR_BG = '#F4F5F7';
 /** 收起后底栏下移的距离：要大于「底栏高度 + 下边距」，才能完全移出屏幕 */
 const BAR_HIDDEN_MARGIN = -180;
 
-@Entry
+/**
+ * 应用外壳：登录门禁 + 五个 tab 的主界面。
+ *
+ * 之所以不直接标 @Entry，是因为需要**两个路由页面共用同一套界面**：
+ * `pages/Index` 与 `pages/Main` 都渲染它，登录成功后在这两个页面之间 replaceUrl，
+ * 让系统密码保险箱看见一次真实的页面跳转（它只在跳转那一刻决定要不要保存/更新密码）。
+ * 两个页面内容完全一样，用户看不出区别，栈深度也始终是 1。
+ */
 @Component
-struct Index {
+export struct MainShell {
   @State tabs: TabDef[] = buildTabs();
   @State currentTab: number = HOME_TAB;
   @State gateLoading: boolean = true;
@@ -363,6 +371,12 @@ struct Index {
   aboutToDisappear(): void {
     this.clearPrivacyWatch();
     this.unregisterNetwork();
+    // 登录成功会 replaceUrl 换页，本实例随之销毁。摇一摇的监听不摘掉的话，
+    // 新页面再注册一次，一次摇动会触发两遍（旧实例的回调还挂在传感器上）。
+    try {
+      sensor.off(sensor.SensorId.ACCELEROMETER);
+    } catch (e) {
+    }
   }
 
   // 全局网络状态：netAvailable/netLost 事件驱动，WebTab 监听后即时切换在线/离线
@@ -930,11 +944,50 @@ struct Index {
       this.wasLoggedOut = false;
       AppStorage.setOrCreate('dsh_relogin_ts', Date.now());
     }
-    this.needGate = false;
     this.syncStatusBar();
+    this.navigateAfterLogin();
+  }
+
+  /**
+   * 登录成功后「真的跳一次页面」，这是让系统密码保险箱能保存/更新密码的前提。
+   *
+   * 官方文档写得很明确：保险箱是在**页面跳转那一刻**去读用户名、密码两个输入框，
+   * 决定弹「保存密码」还是「更新密码」；并且「当前没有主动触发保存的方案」。
+   * 我们原来是同一个页面里把登录界面换成主界面，一次跳转都没有 ——
+   * 于是保险箱既不保存也不更新，改了密码它也不知道。
+   *
+   * 做法：在 `pages/Index` 与 `pages/Main` 之间 replaceUrl。两个页面渲染的是同一个
+   * `MainShell`，界面完全一样、用户无感，栈深度仍是 1，但系统实打实看见了一次跳转。
+   * 之所以要来回换，是因为同 URL 的 replace 不一定被算作跳转。
+   */
+  private navigateAfterLogin(): void {
+    let moved: boolean = false;
+    let target: string = 'pages/Main';
+    try {
+      const st = router.getState();
+      if (st !== undefined && st.name === 'pages/Main') {
+        target = 'pages/Index';
+      }
+    } catch (e) {
+    }
+    try {
+      router.replaceUrl({ url: target }).then(() => {
+        moved = true;
+      }).catch(() => {
+      });
+    } catch (e) {
+    }
+    // 换页没成功就把人卡在登录页了，绝不能这样：1.5 秒后原地切换进主界面
     setTimeout(() => {
-      this.tryAutoOpen();
-    }, 2500);
+      if (moved) {
+        return;
+      }
+      this.needGate = false;
+      this.applyWindowStyle();
+      setTimeout(() => {
+        this.tryAutoOpen();
+      }, 2500);
+    }, 1500);
   }
 
   /**
@@ -1554,5 +1607,24 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor('#F2F3F5')
+  }
+}
+
+/**
+ * 路由页面 `pages/Index` 的入口。真正的内容在 `MainShell`。
+ *
+ * 两个页面（Index / Main）都只做一件事：把 MainShell 挂起来。
+ * 登录成功时在两者之间 replaceUrl，给系统密码保险箱一次「页面跳转」的信号。
+ */
+@Entry
+@Component
+struct IndexPage {
+  build() {
+    // @Entry 的 build 只允许一个容器组件做根节点
+    Column() {
+      MainShell()
+    }
+    .width('100%')
+    .height('100%')
   }
 }

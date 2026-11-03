@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.25-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.26-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,34 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.26 — 2026-11-04
+
+**问题**：0.2.25 给登录页开了自动填充，但用户改了密码后，密码保险箱里的旧密码并不会更新，
+反过来还会把旧密码填进登录框。查官方文档得到两条关键信息：
+
+> 页面跳转时触发保存功能……密码保险箱中已存在同应用下相同账号时，则弹出**密码更新**提示框。
+> （FAQ）问：登录成功后并未触发密码保险箱特性，是否必须使用 router？**答：当前没有主动触发保存的方案。**
+
+也就是说保险箱**不是主动比对**，它只在页面跳转那一刻去读用户名、密码两个输入框。
+而我们的登录成功是同一个页面里把登录界面换成主界面（`needGate = false`），一次跳转都没有 ——
+系统根本没等到那个时机，于是既不保存也不更新。
+
+**改法**：把原本的 `struct Index` 抽成 `export struct MainShell`，新增 `pages/Main` 与
+`pages/Index` 两个路由页面，二者都只渲染 `MainShell`。登录成功后 `navigateAfterLogin()`
+在两者之间 `router.replaceUrl` —— 界面完全一样、用户无感、栈深度仍是 1，但系统看见了一次真实跳转。
+之所以来回换而不是固定跳一个，是因为同 URL 的 `replaceUrl` 不一定被算作跳转。
+
+配套：
+
+- 换页失败（`replaceUrl` 抛错或 1.5 秒没走）时退回原来的原地切换，绝不把人卡在登录页。
+- `aboutToDisappear` 补 `sensor.off(ACCELEROMETER)`。换页会销毁旧实例，监听不摘会一次摇动触发两遍。
+- `main_pages.json` 增加 `pages/Main`。
+
+> **真机验证：待补。** 这是本轮唯一改到页面结构的版本，出包时设备离线未能装机。
+> 装包后重点看三件事：① 登录成功后能正常进主页（不会白屏/卡住）；
+> ② 登录成功时系统弹出「保存密码 / 更新密码」；③ 杀后台再进仍能自动登录。
+> 若出现异常，`历史版本\我的商大-0.2.25-signed.hap` 可直接回退。
 
 ### 0.2.25 — 2026-11-04
 
