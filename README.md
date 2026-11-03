@@ -138,8 +138,82 @@
     重建判据改为「课表指纹 + 现存提醒数」。设置页新增「上课提醒」开关。
   - `requestEnableNotification` 改用带 `UIAbilityContext` 的重载。空参版本自 API 12 起废弃，
     调了既不弹授权框也不报错，通知状态便一直停在关闭。
-  - 遗留：真机上系统仍以 `notification not allowed` 拒绝发布提醒，而 `isNotificationEnabled()`
-    与 `requestEnableNotification()` 都报成功，属设备侧状态异常，待重启后复验。
+  - 遗留：真机上系统仍以 `notification not allowed` 拒绝发布提醒。后续定位结论见本文
+    「2026-11-03 提醒」一节。
+- **2026-11-03 修订（版本号与 `versionCode` 均未变）**。这一轮起因是面谈前自查，
+  分三次提交，`app.json5` 始终没动。
+
+  **一、面谈前的代码体检，修掉 6 处逻辑与安全问题（提交 `1966fca`）**
+
+  1. `Index.setupNotifications` 还留着「先问 `isNotificationEnabled`，没开才申请」+ 无参
+     `requestEnableNotification`。前者在真机上会谎报已开启，后者从 API 12 起废弃、不传 ctx 根本不弹框，
+     两个叠在一起等于启动路径上从来没真正申请过通知权限。改成直接带 ctx 申请。
+  2. `WebTab` 自动登录拼接密码未转义：`Index` 那边一直是 `JSON.stringify(...).slice(1,-1)`，
+     `WebTab` 却直接把密码塞进单引号里。密码含 `'` 或 `\` 时整段脚本语法错误，自动登录永不提交；
+     这同时是一个 JS 注入点。已与 `Index` 对齐。
+  3. URL 判定用子串匹配，凭据可被投递到外站：`isLoginUrl` / `isPortalUrl` / `isContactUrl` 原来是
+     `url.includes('://host/path')`，像 `https://evil.com/#https://uia.zjgsu.edu.cn/cas/login` 也能命中，
+     命中之后就会把学号密码注入进去自动提交。新增 `hostIs()` 按主机名精确比较（兼容端口）。
+  4. 空课表会覆盖缓存，桌面卡片从此永久显示「今天没课」：判空条件原来是
+     `courses.length === 0 && week.length === 0`，而放假周、开学前、以及 3.5 秒延时抓取撞上页面未渲染完时，
+     都是「有周次、没课程」。改成 `courses` 为空一律不落盘，保留旧缓存。
+  5. 明文兜底时没删旧密文，改了密码读出来还是旧的：`getLogin` 优先读密文，而 `saveLogin` 走明文分支时
+     没 `delete` 密文键。补上两个 `delete`，让两条路径互斥。
+  6. 提醒的三处健壮性：`alive > 0` 判据过弱（只要还剩一条就判定「还活着」，缺的几门永远补不回来）→
+     改成 `alive >= 应发条数`；`publish` 是 fire-and-forget 且紧接着写指纹（有没回来的就先写了盘，
+     下次又整批重发，撞 30 条上限后后半批全失败）→ 改成 `Promise.all` 后统一 `await`；
+     `sync` 无串行化（首页 `onPageEnd` 和设置页开关可能同时进来）→ 改成 Promise 链排队。
+
+  **二、退出登录真正把本机数据清干净（提交 `dac2985`）**
+
+  原先 `clearAll()` 只清 Cookie、登录偏好和两个 AppStorage 键，注释还写着「不清存储，离线缓存还能用」。
+  换账号后会出现数据串号：「我的」页仍是上一个人的姓名、学号、成绩、一卡通余额（来自 localStorage 里
+  `__dsh_http_cache_v1__` 的接口响应缓存），桌面卡片仍是上一个人的课表，待办通知和角标还挂着，
+  已排的上课提醒还按上一个人的课表响。
+
+  现在拆成两档：
+
+  - `clearAll()`：用户主动退出，全清 —— Cookie、`WebStorage.deleteAllData()`
+    （localStorage / Web SQL / IndexedDB）、`basic.json` / `todo.json` / `schedule.json`、
+    凭据、待办通知与桌面角标、`Reminders.cancelAll()`、AppStorage 状态。
+  - `clearSession()`：只是会话失效（票据过期、密码输错），只清 Cookie 和凭据，离线课表与已排提醒留着，
+    重新登录后卡片立刻有内容，不用再等一次抓取。
+
+  `Index.onLoginFailed()` 改用 `clearSession()`，避免每次会话过期都把课表缓存和提醒一起清掉。
+  另外 `dsh_logout_ts` 用 `now > old ? now : old + 1` 兜底（同一毫秒内两次登出也能触发 `@Watch`），
+  `dsh_last_todo` 归零（否则下次抓到的条数比它小就不再推通知、不再亮角标）。
+
+  真机验证：点「退出登录」后 `files/` 变空、prefs 里账号密码消失、界面回到登录页；
+  重新登录后 `schedule.json` / `todo.json` 重新生成、凭据重新写入、冷启动自动登录正常。
+
+  **三、提醒的三处加固，以及「到点不响」的真机结论（提交 `b939f7c`）**
+
+  加固（都是为了少踩坑，与下面的设备问题无关）：
+
+  - 清空提醒改用 `cancelAllReminders()`。原来只走「`getValidReminders()` 拿列表 → 逐条
+    `cancelReminder`」，列表接口在个别设备上会抛错（日志 `ReminderAgentService: Read result failed,
+    code is: 1`），一抛整批都删不掉，紧接着的 `publish` 就撞上限。逐条删保留作兜底。
+  - `aliveCount()` 出错返回 `-1` 而不是 `0`。以前静默返回 0，读不到就当「一条都没有」，
+    于是每次进 App 都判定要重建：清不掉旧的、再发一批新的、撞上限、后半批全失败。
+  - 提醒请求显式指定 `slotType: SOCIAL_COMMUNICATION`，发布前调一次 `addSlot()`（幂等）；
+    `requestEnableNotification` 的成功/失败都写日志并带上错误码。
+
+  真机结论：**这台设备上提醒发布不出去，且不是代码问题**。日志两侧对照如下——
+
+  ```
+  应用侧：sync: courses=17 expect=17 alive=0 → cancelAllReminders ok → slot ready
+          → notification granted → republish 17 of 17 → publish failed（17 次）
+  系统侧：ReminderControl com.humour.myshangda, notification not allowed.
+          ANS_REMINDER: The number of reminders exceeds the limit[0].
+  ```
+
+  那个 `limit[0]` 是关键：不是 30 条上限打满，而是系统把该应用的提醒配额算成了 **0 条**，起因是
+  `notification not allowed`。而同一时刻：系统设置里「允许通知」是开着的、`isNotificationEnabled()`、
+  `requestEnableNotification()`、`addSlot()` 全部返回成功 —— 三方状态互相矛盾，属系统侧记录异常。
+  卸载重装、在授权弹窗点「允许」、把设置里的开关关掉再打开，都试过，仍判否。
+  换设备或重置系统通知状态后应可恢复。`bm dump` 里的 `allowEnableNotification` 字段与真实状态无关
+  （重装前后、点允许/不允许之后都是 `false`），不要拿它判断。
+
 
 ### 0.2.20 — 2026-10-28
 
@@ -424,7 +498,8 @@ zfsoft / 通讯录 H5 的 Android 桥兼容层出自上游；课表桌面卡片�
 ## 隐私与免责声明
 
 - 应用不收集、不上传任何个人信息，也不包含统计或广告 SDK。
-- 账号与密码仅保存在设备本地，用于向学校官方统一身份认证提交；退出登录会清除本地凭据。
+- 账号与密码仅保存在设备本地，用于向学校官方统一身份认证提交；退出登录会清除本地凭据、
+  网页存储（含接口响应缓存）与离线课表缓存，换账号不会看到上一个人的数据。
 - 所有业务数据来自浙江工商大学官方系统，本应用不修改、不转发业务数据；离线缓存仅保存在设备本地。
 - 本项目为社区学习与自用项目，与浙江工商大学官方无关；因使用本应用产生的任何后果由使用者自行承担。
 - 若相关权利方认为本项目侵犯其权益，请联系删除。
