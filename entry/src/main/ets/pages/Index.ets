@@ -854,8 +854,10 @@ struct Index {
     this.gateBusy = false;
     this.gateError = '账号或密码错误，请重新输入';
     this.needGate = true;
-    // 清掉可能残留的半截会话，否则下次还会被判成功
-    Session.clearAll();
+    // 清掉可能残留的半截会话，否则下次还会被判成功。
+    // 这里用 clearSession 而不是 clearAll：只是会话失效/密码错，离线课表和已排提醒留着，
+    // 重新登录后卡片立刻就有内容，不用再等一次抓取。
+    Session.clearSession();
     const ctx = getContext(this) as common.UIAbilityContext;
     PrefsStore.clearLogin(ctx).catch(() => {
     });
