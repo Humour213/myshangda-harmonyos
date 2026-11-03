@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.24-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.25-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,27 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.25 — 2026-11-04
+
+**一、冷启动与重新登录都固定落在主页。** 0.2.19 加的「恢复上次停留的 tab」去掉了 —— 实际用起来
+很割裂：杀后台再进来，人还停在「我的」或「通讯录」，标题栏和内容都不是自己刚点出来的那一下，
+像是应用没退干净。现在 `aboutToAppear` 直接把 `currentTab` 置为 `HOME_TAB`，
+`PrefsStore` 的 `saveLastTab` / `getLastTab` / `KEY_LAST_TAB` 一并删掉（旧版本留下的那个键不再有用，
+留着也无害）。
+
+**二、登录页接入系统密码保险箱。** 登录页的两个输入框打开自动填充：
+`.enableAutoFill(true)` + `.contentType(ContentType.USER_NAME / PASSWORD)`。
+登录提交后系统会问「是否保存到密码保险箱」，下次进登录页会自动把账号密码填回来。
+眼睛图标只是把内容显示成明文，`contentType` 仍是 `PASSWORD`，保险箱照样认得。
+
+> 为什么只开这一处：0.2.21 曾把主 Web 的自动填充关掉，因为自动登录每次冷启动都会替用户
+> 提交一次带密码的表单，系统把它当成用户主动登录，于是每次进来都弹「是否更新密码」。
+> 那是噪音，该关；登录页这个是人手动输、手动点的地方，该开。**主 Web 与校验用的隐藏 Web
+> 继续保持 `enableAutoFill(false)`。**
+
+两者分工：我们自己存的凭据（Asset Store）负责「静默自动登录，用户连登录页都看不到」；
+系统保险箱是另一层保险 —— 万一我们的存储不可用，账号密码还能被填回来。
 
 ### 0.2.24 — 2026-11-04
 

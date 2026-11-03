@@ -267,7 +267,6 @@ struct Index {
     this.currentTab = HOME_TAB;
     WebRegistry.setActive(`tab-${HOME_TAB}`);
     this.showBar(true);
-    this.saveLastTab(HOME_TAB);
     this.needGate = true;
     this.applyWindowStyle();
   }
@@ -305,27 +304,25 @@ struct Index {
       this.needGate = l.user === '' || l.pass === '';
       if (!this.needGate) {
         // 把凭据同时放进 AppStorage：各 tab 的自动登录会先读自己那份（异步加载的），
-        // 读不到时再看这里。冷启动时页面可能比 that 那次读盘先加载完，
+        // 读不到时再看这里。冷启动时页面可能比那次读盘先加载完，
         // 少了这条兜底，就会出现「明明记住了密码，却提示未登录」。
         AppStorage.setOrCreate('dsh_session_user', l.user);
         AppStorage.setOrCreate('dsh_session_pass', l.pass);
       }
-      // 恢复上次停留的 Tab：在 gateLoading 放开之前拿到，避免先闪一下主页再跳
-      PrefsStore.getLastTab(ctx).then((last: number) => {
-        if (last >= 0 && last < this.tabs.length) {
-          this.currentTab = last;
-          WebRegistry.setActive(`tab-${last}`);
-        }
-        this.gateLoading = false;
-        this.syncStatusBar();
-        this.onTargetUrl();
-        if (!this.needGate) {
-          // 已登录：进入主界面后按「功能设置」自动打开对应功能
-          setTimeout(() => {
-            this.tryAutoOpen();
-          }, 2500);
-        }
-      });
+      // 冷启动、重新登录都固定落在主页。
+      // 以前这里会恢复上次停留的 tab，实际用起来很割裂：杀后台再进来，人还停在「我的」或
+      // 「通讯录」，标题栏和内容都不是自己刚点出来的那一下，像是应用没退干净。
+      this.currentTab = HOME_TAB;
+      WebRegistry.setActive(`tab-${HOME_TAB}`);
+      this.gateLoading = false;
+      this.syncStatusBar();
+      this.onTargetUrl();
+      if (!this.needGate) {
+        // 已登录：进入主界面后按「功能设置」自动打开对应功能
+        setTimeout(() => {
+          this.tryAutoOpen();
+        }, 2500);
+      }
     });
     PrefsStore.isStatementAgreed(ctx).then((agreed: boolean) => {
       if (!agreed) {
@@ -656,12 +653,6 @@ struct Index {
     }
   }
 
-  private saveLastTab(idx: number): void {
-    const ctx = getContext(this) as common.UIAbilityContext;
-    PrefsStore.saveLastTab(ctx, idx).catch(() => {
-    });
-  }
-
   switchTab(idx: number, silent: boolean = false): void {
     hilog.info(0x0001, 'Index', 'switchTab to %{public}d', idx);
     if (idx === this.currentTab && !silent) {
@@ -670,7 +661,6 @@ struct Index {
     this.currentTab = idx;
     WebRegistry.setActive(`tab-${idx}`);
     this.showBar(true);
-    this.saveLastTab(idx);
   }
 
   // 精确判定：URL 是否为该 Tab 的根页面（原版一切非根内容都是独立子页）
@@ -1066,6 +1056,7 @@ struct Index {
           // 用户名（paddingTop26/paddingBottom18，14sp，#393939，无框）
           TextInput({ placeholder: '职工号/学号/手机号码', text: this.gateUser })
             .type(InputType.USER_NAME)
+            .contentType(ContentType.USER_NAME)
             .height(64)
             .width('100%')
             .backgroundColor(Color.Transparent)
@@ -1076,7 +1067,12 @@ struct Index {
             .fontSize(14)
             .caretColor('#4B7DD9')
             .maxLength(25)
-            .enableAutoFill(false)
+            // 交给系统密码保险箱：登录提交后系统会问「是否保存到密码保险箱」，下次自动填入。
+            // 我们自己存的那份（Asset Store）负责「静默自动登录」，这两者互补：
+            // 我们的存储万一不可用，保险箱还能把账号密码填回来。
+            // 注意只在这个原生登录页打开 —— 主网页那个 Web 必须继续关着，
+            // 因为自动登录每次冷启动都会替用户提交一次表单，开着就会反复弹「是否更新密码」。
+            .enableAutoFill(true)
             .onChange((v: string) => {
               this.gateUser = v;
               if (this.gateError !== '') {
@@ -1091,6 +1087,7 @@ struct Index {
           Stack({ alignContent: Alignment.End }) {
             TextInput({ placeholder: '请输入密码', text: this.gatePass })
               .type(this.pwVisible ? InputType.Normal : InputType.Password)
+              .contentType(ContentType.PASSWORD)
               .height(64)
               .width('100%')
               .backgroundColor(Color.Transparent)
@@ -1102,7 +1099,9 @@ struct Index {
               .caretColor('#4B7DD9')
               .maxLength(25)
               .showPasswordIcon(false)
-              .enableAutoFill(false)
+              // 交给系统密码保险箱（见上方用户名框的说明）。眼睛图标只是把内容显示成明文，
+              // contentType 仍是 PASSWORD，保险箱照样认得。
+              .enableAutoFill(true)
               .onChange((v: string) => {
                 this.gatePass = v;
                 if (this.gateError !== '') {

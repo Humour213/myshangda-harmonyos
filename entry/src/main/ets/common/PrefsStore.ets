@@ -15,7 +15,6 @@ const KEY_PASS = 'login_pass';
 // HUKS 加密后的凭据（AES-256-GCM，密钥由系统保管、不可导出）
 const KEY_USER_ENC = 'login_user_enc';
 const KEY_PASS_ENC = 'login_pass_enc';
-const KEY_LAST_TAB = 'last_tab';
 const KEY_ONBOARDED = 'onboarded';
 const KEY_AGREED = 'statement_agreed_v1';
 const KEY_NAV_STYLE = 'nav_style';
@@ -250,28 +249,9 @@ export class PrefsStore {
     }
   }
 
-  static async saveLastTab(ctx: common.UIAbilityContext, tab: number): Promise<void> {
-    try {
-      const store = await PrefsStore.getStore(ctx);
-      await store.put(KEY_LAST_TAB, tab);
-      await store.flush();
-    } catch (e) {
-    }
-  }
-
-  /**
-   * 上次停留的 Tab。
-   * 默认返回 -1 表示「没记录过」，由调用方决定落哪个 Tab
-   * （不能用 0 当默认值，否则首启会落到第一个 Tab 而不是主页）。
-   */
-  static async getLastTab(ctx: common.UIAbilityContext): Promise<number> {
-    try {
-      const store = await PrefsStore.getStore(ctx);
-      return (await store.get(KEY_LAST_TAB, -1)) as number;
-    } catch (e) {
-      return -1;
-    }
-  }
+  // 注：「恢复上次停留的 Tab」已取消 —— 冷启动与重新登录都固定落在主页，
+  // 停在最后那个 tab 实际用起来很割裂（进去先看到的是自己上次点出来的页面）。
+  // 对应的 KEY_LAST_TAB 与读写方法一并删掉，旧版本留下的那个键不再有用，留着也无害。
 
   /** 上课提醒是否开启。默认开启（这个功能原本就有，给的是「关掉」的选项） */
   static async isRemindOn(ctx: common.UIAbilityContext): Promise<boolean> {
