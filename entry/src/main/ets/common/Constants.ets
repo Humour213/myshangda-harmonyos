@@ -3,8 +3,6 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-export const BRAND_BLUE = '#2D8CFA';
-
 // 统一认证
 export const LOGIN_HOST = 'uia.zjgsu.edu.cn';
 export const CAS_LOGIN_URL = `https://${LOGIN_HOST}/cas/login`;
@@ -39,13 +37,6 @@ export const COMMUNITY_EMAIL = '2496548066@qq.com';
 // 门户 H5 只有在 UA 含 zfsoft 时才进入 App 分支（我的页会多出 App 专属菜单）
 export const MOBILE_UA =
   'Mozilla/5.0 (Linux; Android 13; HarmonyOS) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36 zfsoft_zjgs/7.1.25';
-
-export const TAB_HOME = 0;
-export const TAB_WORK = 1;
-export const TAB_APPROVE = 2;
-export const TAB_CONTACT = 3;
-export const TAB_MSG = 4;
-export const TAB_ME = 5;
 
 /**
  * 底栏 Tab 定义。

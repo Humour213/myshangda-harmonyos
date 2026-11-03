@@ -41,13 +41,3 @@ export const SCHEDULE_SCRAPE_JS: string = '(function(){try{' +
   'out.push({day:i,start:mt?parseInt(mt[1]):1,span:mk?parseInt(mk[1]):1,name:nm,place:pl});}}' +
   'return JSON.stringify({term:term,week:wk,courses:out});' +
   '}catch(e){return "ERR:"+e;}})()';
-
-/** 点网页课表的上一周箭头 */
-export const SCHEDULE_PREV_JS: string = '(function(){try{' +
-  'var a=document.querySelector(".schedule-date .icon-left-o");' +
-  'if(a){a.click();return "ok";}return "no";}catch(e){return "err";}})()';
-
-/** 点网页课表的下一周箭头 */
-export const SCHEDULE_NEXT_JS: string = '(function(){try{' +
-  'var a=document.querySelector(".schedule-date .icon-right-o");' +
-  'if(a){a.click();return "ok";}return "no";}catch(e){return "err";}})()';

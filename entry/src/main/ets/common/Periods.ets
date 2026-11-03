@@ -40,21 +40,3 @@ export function toMinutes(hm: string): number {
   }
   return h * 60 + m;
 }
-
-/** 第 start 节（从 1 开始）的上课时间；越界返回空串 */
-export function startOf(start: number): string {
-  const idx: number = start - 1;
-  if (idx < 0 || idx >= PERIOD_START.length) {
-    return '';
-  }
-  return PERIOD_START[idx];
-}
-
-/** 一门课（起始节 + 跨节数）的下课时间；越界返回空串 */
-export function endOf(start: number, span: number): string {
-  const idx: number = start + span - 2;
-  if (idx < 0 || idx >= PERIOD_END.length) {
-    return '';
-  }
-  return PERIOD_END[idx];
-}

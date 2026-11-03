@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.32-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.33-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,60 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.33 — 2026-11-04
+
+**代码体检 + 清理。行为零变化。**
+
+用静态分析扫了一遍（孤儿模块、未使用导入、未使用导出、未引用资源），结论是这摊代码
+比想象中干净：**没有未使用的 import，没有注释掉的代码块，没有 TODO/FIXME**。
+找到的都是「当时有用、后来功能删了但代码没跟着走」的残留：
+
+**一、三个零引用的视图组件（205 行）**
+
+| 文件 | 行数 |
+|---|---|
+| `view/MainTitleBar.ets` | 67 |
+| `view/NavDock.ets` | 48 |
+| `view/WebSubToolbar.ets` | 90 |
+
+三个 `struct` 全仓库零 import —— 顶栏和底栏后来改成 `Index` 内联自绘，这三个就一直躺着。
+`view/` 目录现在只剩真正在用的 `ClassicHeader`、`TabTitleBar`、`WebTab`。
+
+**二、六个没人引用的图片（222 KB）**
+
+`app_logo_color.png`、`login_wave.png`、`startIcon.png`、`tab_work_off.png`、
+`tab_work_on.png`、`top_settings.png`。确认过没有动态拼接资源名的写法（没有
+`$r('app.media.' + x)` 这类），启动图标走的是 `$media:layered_image` 而不是 `startIcon`。
+
+**三、一组过期且错误的常量**
+
+```
+export const TAB_HOME = 0;      // 实际：主页是 2
+export const TAB_APPROVE = 2;   // 实际：审批是 1
+export const TAB_ME = 5;        // 实际：只有 5 个 tab，下标到 4
+```
+
+`Constants` 里这套 6 个 tab 常量是早期定义，tab 顺序和数量后来都变过，它没跟着改，
+而且从没被引用过（`Index` 自己定义了一个 `HOME_TAB = 2`）。这种「留着但值是错的」
+比没有更危险 —— 下次谁顺手拿来用就踩坑。已删。
+
+顺带删掉三个同样零引用的：`BRAND_BLUE`（品牌色定义了却没人用，25 处 `#2D8CFA` 全是硬编码，
+留着它会让人以为改常量就生效）、`Periods.startOf/endOf`、`ScheduleScripts.SCHEDULE_PREV_JS/NEXT_JS`
+（点网页课表上一周/下一周箭头的脚本，周切换功能没做）。
+
+**没动的，说明一下**：
+
+- **`Index`（1600 行）/ `WebTab`（1400 行）两个大文件**：拆得动，但 ArkUI 跨文件拆状态容易拆出问题，
+  现在没 bug 就不碰。
+- **79 种颜色、25 处硬编码品牌蓝**：统一成常量是「改着好看」，但会动到大量视觉代码，
+  收益和风险不成正比。
+- **100 处空 `catch`**：绝大多数是 WebView 容错（页面没就绪、桥方法不在），是有意为之；
+  少数可能吞掉了真错误，但没有症状就无从判断该不该抛。
+- **`NativeApi` 里三个没人调的方法**：是对学校接口的封装，留着将来做原生视图能直接用。
+
+> **真机验证：待补。** 设备离线。这版行为零变化，装上后能正常打开、卡片正常就是对的。
+> 回退：`历史版本\我的商大-0.2.32-signed.hap`。
 
 ### 0.2.32 — 2026-11-04
 
