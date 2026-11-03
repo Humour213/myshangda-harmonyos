@@ -121,11 +121,12 @@
 三个 `struct` 全仓库零 import —— 顶栏和底栏后来改成 `Index` 内联自绘，这三个就一直躺着。
 `view/` 目录现在只剩真正在用的 `ClassicHeader`、`TabTitleBar`、`WebTab`。
 
-**二、六个没人引用的图片（222 KB）**
+**二、七个没人引用的图片（224 KB）**
 
 `app_logo_color.png`、`login_wave.png`、`startIcon.png`、`tab_work_off.png`、
-`tab_work_on.png`、`top_settings.png`。确认过没有动态拼接资源名的写法（没有
-`$r('app.media.' + x)` 这类），启动图标走的是 `$media:layered_image` 而不是 `startIcon`。
+`tab_work_on.png`、`top_settings.png`、`top_setting_dark.png`。确认过没有动态拼接资源名的写法
+（没有 `$r('app.media.' + x)` 这类），启动图标走的是 `$media:layered_image` 而不是 `startIcon`。
+最后一张是第一轮漏掉的，又跑了一遍全量扫描（45 个资源文件逐个比对代码文本）才捞出来。
 
 **三、一组过期且错误的常量**
 
@@ -142,6 +143,18 @@ export const TAB_ME = 5;        // 实际：只有 5 个 tab，下标到 4
 顺带删掉三个同样零引用的：`BRAND_BLUE`（品牌色定义了却没人用，25 处 `#2D8CFA` 全是硬编码，
 留着它会让人以为改常量就生效）、`Periods.startOf/endOf`、`ScheduleScripts.SCHEDULE_PREV_JS/NEXT_JS`
 （点网页课表上一周/下一周箭头的脚本，周切换功能没做）。
+
+**四、清理没落到包里 —— 出包脚本的缺陷**
+
+准备出包时发现：`build_release.py` 把工程复制到构建副本时只做增量复制、**从不删除**。
+所以 0.2.29 删的四个原生页面、这版删的三个组件和七张图，全都还留在构建副本里跟着打进包。
+源码看着干净了，包体积一点没减。
+
+给同步步骤补上 `prune()`：只在与源码同名的目录范围内清理，`build` / `.test` / `cache`
+这类纯产物目录整棵跳过（第一版没加这个限制，把编译缓存也当成过期文件扫掉了）。
+重新出包后 **1.48 MB → 1.26 MB**，这才是清理的真实收益。
+
+> 附带结论：0.2.29 的「删死代码」当时也只是删了源码，产物一直没瘦。
 
 **没动的，说明一下**：
 
