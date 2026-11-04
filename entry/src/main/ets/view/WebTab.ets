@@ -27,6 +27,18 @@ const DOMAIN = 0x0000;
 const TAG = 'WebTab';
 
 /**
+ * 地址变化算不算「用户点出来的」的时间窗。
+ *
+ * 网页里 pushState / replaceState / popstate / load 都会上报当前地址，原生据此开子页。
+ * 但有一类变化不是用户意图：子页返回后 ArkWeb 会把焦点还给首页那个搜索框，H5 的
+ * onfocus 里又是「跳到搜索页」，于是刚退出就又进去，反复横跳。
+ *
+ * 这类变化前面没有手指动作。所以只认「刚碰过屏幕」的跳转，给足 2.5 秒容忍 H5 里
+ * 先请求接口再跳的慢路径；超出的变化只记日志，不开子页。
+ */
+const ROUTE_GESTURE_WINDOW: number = 2500;
+
+/**
  * 门户下发的失效链接 → 现役地址。
  *
  * 学校站点改版或删文后，门户里的入口不会跟着更新。点进去只会看到学校站的
@@ -68,6 +80,9 @@ export struct WebTab {
   onTitleEvent: (t: string) => void = (_t: string) => {};
   /** 自动登录连跑两轮还停在统一身份认证页：凭据无效，交给 Index 退回登录页 */
   onLoginFailed: () => void = () => {};
+
+  /** 最近一次用户手指碰到网页的时间：用来判断地址变化是不是用户主动点出来的 */
+  private gestureTs: number = 0;
 
   @State loaded: boolean = false;
   @State isLoading: boolean = false;
@@ -117,7 +132,7 @@ export struct WebTab {
     // 统一先在线加载，失败/超时才自动切离线缓存（goOffline）。
     this.bridge = new DshBridge(
       (y: number) => this.onScrollEvent(y),
-      (u: string) => this.onRouteEvent(u),
+      (u: string) => this.handleRoute(u),
       () => this.requestLogout(),
       () => this.doScan(),
       (payload: string) => this.openFromWeb(payload)
@@ -1313,6 +1328,22 @@ export struct WebTab {
   }
 
   /**
+   * 网页上报的地址变化：只有刚发生过触摸才算用户主动跳转。
+   *
+   * 反例就是首页搜索框：点一下 → 拿到焦点 → H5 跳搜索页 → 开子页；
+   * 退出子页时焦点被还回去 → H5 又跳一次。第二次前面没有手指动作，这里挡掉。
+   * 挡掉的是「自动开子页」，页面本身该显示什么不受影响。
+   */
+  private handleRoute(url: string): void {
+    const gap: number = Date.now() - this.gestureTs;
+    if (gap > ROUTE_GESTURE_WINDOW) {
+      hilog.info(DOMAIN, TAG, 'route dropped (no gesture, %{public}dms) %{public}s', gap, url);
+      return;
+    }
+    this.onRouteEvent(url);
+  }
+
+  /**
    * 底栏收放的滑动采样。
    *
    * 门户页面是虚拟滚动容器，JS 侧拿不到 scrollY（window.scrollY 恒为 0），
@@ -1320,6 +1351,9 @@ export struct WebTab {
    * 方向判定和阈值留给 Index 统一处理。
    */
   private handleTouch(e: TouchEvent): void {
+    // 任何触摸类型都刷新一次：Web 是原生组件，Down 不一定送到 ArkUI 层，
+    // 用 Move / Up 兜上，只要手指确实碰过屏幕就算数。
+    this.gestureTs = Date.now();
     if (e.type !== TouchType.Move) {
       if (e.type === TouchType.Down) {
         if (e.touches.length > 0) {

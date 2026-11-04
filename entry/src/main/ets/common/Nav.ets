@@ -51,6 +51,10 @@ export class Router {
   /** 最近一次压栈的地址与时间：用来挡住「同一个地址被连续压两次」 */
   private static lastUrl: string = '';
   private static lastTs: number = 0;
+  /** 最近一次子页返回的时间：返回瞬间网页常会自己再跳一次，这段时间内不收开子页请求 */
+  private static lastPopTs: number = 0;
+  /** 返回后的静默期：足够盖住「焦点复原 → H5 自动跳转」这一次，又不影响正常点击 */
+  private static readonly POP_QUIET_MS: number = 700;
   /** 子页最多叠这么多层，超过就不再压栈 */
   private static readonly MAX_DEPTH: number = 6;
 
@@ -76,6 +80,13 @@ export class Router {
       hilog.warn(0x0001, 'Router', 'openSub ignored (repeat) %{public}s', target);
       return;
     }
+    // 刚从一个子页退回来：这时候网页往往会把焦点还给上次点过的输入框，
+    // H5 的 onfocus 里有跳转逻辑就会立刻再开一次 —— 用户看到的就是「退出又进来」。
+    // 返回后给它一个很短的不应期，把这一下挡住；正常点击基本不会落在 0.7 秒内。
+    if (now - Router.lastPopTs < Router.POP_QUIET_MS) {
+      hilog.warn(0x0001, 'Router', 'openSub ignored (just popped) %{public}s', target);
+      return;
+    }
     // 防深：真出现「A 打开 B、B 又打开 A」这种交替循环时，按时间戳挡不住，按层数总能挡住
     if (Router.stack.size() >= Router.MAX_DEPTH) {
       hilog.warn(0x0001, 'Router', 'openSub blocked (depth %{public}d)', Router.stack.size());
@@ -98,6 +109,47 @@ export class Router {
       // 带 result 弹出，确保 push 时注册的 onPop 回调会执行（协议页返回后恢复隐私弹层）
       Router.stack.pop('', true);
     }
+    Router.lastPopTs = Date.now();
+    Router.blurUnderlying();
+  }
+
+  /**
+   * 清掉底下那层网页里的焦点。
+   *
+   * 首页搜索框是个输入框：点它 → 拿到焦点 → H5 的 onfocus 里跳到搜索页 → 我们开子页。
+   * 子页退出后 ArkWeb 会把焦点还给那个输入框，H5 的 onfocus 于是又跳一次 ——
+   * 用户看到的就是「退出又进来」反复横跳。0.2.27 靠「同一地址 5 秒内不重复开」压过，
+   * 但真人进搜索页输字看结果再退出，早就超过 5 秒，闸门等于不存在。
+   *
+   * 这里在返回时直接把 input/textarea 的焦点摘掉，从源头断掉这次自动跳转。
+   * 分几个时间点补几次：焦点是页面重新可见时由内核恢复的，晚了就漏。
+   */
+  private static blurUnderlying(): void {
+    const c: webview.WebviewController | undefined = WebRegistry.activeController();
+    if (c === undefined) {
+      return;
+    }
+    const js: string =
+      '(function(){try{var a=document.activeElement;' +
+      'if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.isContentEditable===true)){a.blur();return "blur";}' +
+      'return "none";}catch(e){return "err";}})()';
+    try {
+      c.runJavaScript(js);
+    } catch (e) {
+    }
+    // 焦点是页面重新可见之后由内核恢复的，可能比 pop 动画晚一点，所以补两次
+    setTimeout(() => {
+      try {
+        c.runJavaScript(js);
+      } catch (e) {
+      }
+    }, 150);
+    setTimeout(() => {
+      try {
+        c.runJavaScript(js);
+      } catch (e) {
+      }
+    }, 450);
   }
 
   // 交给系统浏览器处理（如 .apk 直链），失败时回落应用内打开
