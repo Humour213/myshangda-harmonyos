@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.36-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.37-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,25 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.37 — 2026-11-20
+
+**豆泥挪进标题栏，并剔除一张不合适的图。**
+
+上一版把猫做成了浮层，压在网页右上角。问题在于五个 tab 全是 WebView 套壳，
+浮层无论放哪个角都在压内容：右下压宫格和网页自带的悬浮按钮，右上压 banner 和用户卡片。
+缩小之后动作也读不出来了。
+
+现在改成放进**标题栏**——那里本来就是原生的、五个 tab 都有、也不会随网页滚动跑掉：
+
+- 标题区从系统的 `mainTitle` 换成 `stackBuilder` 自定义，「猫 + 标题」同一行；
+- 默认主题仍然只渲染一行纯文字，视觉上与原来完全一致
+  （字号 30、粗体、`sys.color.font_primary` 是照着原 `mainTitle` 实测的墨迹高度对齐的，
+  换 builder 后系统不再代劳，必须自己给）；
+- 猫 34vp，正好在标题栏内不撑高。
+
+同时删掉 `douni_passive_04`（举爪子贴着嘴那张）：小尺寸下这个动作看不出是"吃手指"，
+只剩一团说不清的形，反而显脏。素材池里的 passive 现在是 3 张。
 
 ### 0.2.36 — 2026-11-20
 

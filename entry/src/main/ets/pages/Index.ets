@@ -120,6 +120,13 @@ const BAR_HIDDEN_MARGIN = -180;
  * 所以这个值不会让人多等，只是把原本的白屏换成「豆泥正在翻课表」。
  */
 const BOOT_MIN_MS = 700;
+/**
+ * 标题栏里那只豆泥的尺寸（vp）。
+ *
+ * 标题栏高度有限，猫再大就会把标题挤下去、或者把栏顶高；
+ * 34 是"能认出是只猫、又不抢标题"的上限附近的取值。
+ */
+const TITLE_MASCOT_SIDE = 34;
 
 /**
  * 应用外壳：登录门禁 + 五个 tab 的主界面。
@@ -1430,27 +1437,6 @@ export struct MainShell {
             .width('100%')
             .height('100%')
           }
-
-          // 豆泥主题：每个 tab 的右上角坐一只。
-          //
-          // 为什么单选右上角：五个 tab 全是 WebView 套壳，左下/右下在「我的商大」网页里
-          // 正好是应用宫格和页面自带的「公众号」悬浮按钮 —— 贴纸压上去两层图形叠着，
-          // 图标看不懂、悬浮按钮也点不到。右上角在主页是蓝色 banner 的装饰区，
-          // 压上去不损失任何功能入口。
-          //
-          // 为什么单独铺一层全屏 Stack 而不是给外层 Stack 换对齐：
-          // 外层那个 Alignment.Bottom 是底栏收起动画依赖的，动它会连带动到已有布局。
-          // 这层只做定位，hitTestBehavior(None) 保证整层不接管触摸 ——
-          // 网页照常滚动、点击全部穿透到下层的 WebView，等于"画上去的一张贴纸"。
-          if (this.theme === THEME_DOUNI) {
-            Stack({ alignContent: Alignment.TopEnd }) {
-              Mascot({ slot: 'passive', side: 64 })
-            }
-            .width('100%')
-            .height('100%')
-            .padding({ right: 6, top: 4 })
-            .hitTestBehavior(HitTestMode.None)
-          }
         }
       }
     }
@@ -1476,7 +1462,20 @@ export struct MainShell {
         }
       },
       content: {
-        title: { mainTitle: this.currentTitle() },
+        // 标题区交给 stackBuilder 自定义区域，而不是系统的 mainTitle。
+        //
+        // mainTitle 只吃 ResourceStr，没法在标题旁边放图；而用浮层把猫盖在网页上，
+        // 无论放哪个角都会压住内容（右下压宫格和网页自带的悬浮按钮，右上压 banner 和卡片）。
+        // 标题栏本来就是原生的、五种 tab 都有、且不会随网页滚动跑掉 —— 放这里最干净：
+        // 默认主题渲染一行纯文字，豆泥主题就是「猫 + 标题」同一行。
+        //
+        // mainTitle 必须显式置空：stackBuilder 是**追加**在标题区里的自定义区域，
+        // 留着 mainTitle 会变成「系统标题 + 自定义标题」两行字。官方示例也是这么写的。
+        // stackBuilder 也要包一层箭头函数 —— 直接传 this.xxx 拿不到正确的 this。
+        title: { mainTitle: '' },
+        stackBuilder: (): void => {
+          this.titleRowBuilder();
+        },
         menu: { value: this.titleMenuItems() }
       }
     })
@@ -1508,6 +1507,29 @@ export struct MainShell {
     // BOTTOM 是为了原生样式的「沉浸光感」底栏：内容要一直铺到屏幕最下沿，
     // 底栏浮在内容上方才有得透，否则底栏下面永远是一条窗口白底。
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+  }
+
+  @Builder
+  titleRowBuilder() {
+    Row({ space: 2 }) {
+      if (this.theme === THEME_DOUNI) {
+        Mascot({ slot: 'passive', side: TITLE_MASCOT_SIDE })
+      }
+      Text(this.currentTitle())
+        // 这三个值是照系统 mini 标题**实测对齐**的，不是随手调：
+        // 换成自定义 builder 之后字号/字重/颜色系统不再代劳，
+        // 原来的 mainTitle 在 3x 屏上墨迹高 86px（28.7vp），
+        // 对中文约等于 30fp 粗体，所以这里是 30 + Bold。
+        .fontSize(30)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('sys.color.font_primary'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .alignItems(VerticalAlign.Center)
+    // 自定义区域是从标题栏最左边算起的，系统不再给标题那圈 18vp 的起始内边距，
+    // 这里补回来，否则标题会比原来更靠左，和网页内容左边线对不上。
+    .padding({ left: 18 })
   }
 
   @Builder

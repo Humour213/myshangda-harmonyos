@@ -12,7 +12,7 @@ import { THEME_DOUNI } from './PrefsStore';
  * 好处是加图不用改页面 —— 新图丢进 base/media、在下面加一行，第二天自动生效。
  *
  * 槽位（8 个，语义固定、图可增减）：
- *   passive  待着     默认、引导页、关于页            4 张
+ *   passive  待着     默认、引导页、关于页            3 张
  *   empty    空了     列表无数据                      2 张
  *   rest     没事干   今日无课、周末                  1 张
  *   loading  在忙     加载中、同步                    1 张
@@ -31,8 +31,10 @@ import { THEME_DOUNI } from './PrefsStore';
 const PASSIVE: Resource[] = [
   $r('app.media.douni_passive_01'),
   $r('app.media.douni_passive_02'),
-  $r('app.media.douni_passive_03'),
-  $r('app.media.douni_passive_04')
+  $r('app.media.douni_passive_03')
+  // 原来的第 4 张（举爪子贴嘴那只）已按用户意见剔除：
+  // 缩小到标题栏尺寸后动作读不出来，只剩一团说不清的形状，反而显脏。
+  // 原图和抠好的 PNG 都还在「主题-小豆泥/抠图成品-v6」，要用随时能捞回来。
 ];
 const EMPTY: Resource[] = [
   $r('app.media.douni_empty_01'),
