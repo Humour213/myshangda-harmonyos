@@ -3,6 +3,7 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
+import { Palette } from '../common/Palette';
 import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE, THEME_DEFAULT, THEME_DOUNI } from '../common/PrefsStore';
 import { webview } from '@kit.ArkWeb';
 import { promptAction } from '@kit.ArkUI';
@@ -25,6 +26,7 @@ import { ScheduleData } from '../common/ScheduleTypes';
 @Component
 export struct SettingsPage {
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  @StorageProp('dsh_theme') theme: string = 'default';
   /** 版本号统一从包信息读，避免改版本还要手改界面文案 */
   @State appVersion: string = '';
   /** 上课提醒开关。默认开 —— 这功能本来就有，这里给的是「关掉」的选择权 */
@@ -94,7 +96,7 @@ export struct SettingsPage {
         message: '上课提醒是通过系统通知发出的。现在「我的商大」的通知是关着的，提醒排上了也不会显示。',
         buttons: [
           { text: '稍后', color: '#8A8A8A' },
-          { text: '去开启', color: '#2D8CFA' }
+          { text: '去开启', color: Palette.accent(this.theme) }
         ]
       }).then((res: promptAction.ShowDialogSuccessResponse) => {
         if (res.index === 1) {
@@ -336,14 +338,14 @@ export struct SettingsPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor(Palette.page(this.theme))
     }
     .titleBar({
       enableComponentSafeArea: true,
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           }
         },
         systemMaterialEffect: {
@@ -451,7 +453,7 @@ export struct SettingSubPage {
       if (this.navStyle === value) {
         Text('✓')
           .fontSize(18)
-          .fontColor('#2D8CFA')
+          .fontColor(Palette.accent(this.theme))
           .margin({ right: 4 })
       }
     }
@@ -498,7 +500,7 @@ export struct SettingSubPage {
       if (this.theme === value) {
         Text('✓')
           .fontSize(18)
-          .fontColor('#2D8CFA')
+          .fontColor(Palette.accent(this.theme))
           .margin({ right: 4 })
       }
     }
@@ -597,14 +599,14 @@ export struct SettingSubPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor(Palette.page(this.theme))
     }
     .titleBar({
       enableComponentSafeArea: true,
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           }
         },
         systemMaterialEffect: {
@@ -643,6 +645,7 @@ export struct SettingSubPage {
 struct SwitchRow {
   label: string = '';
   @Link on: boolean;
+  @StorageProp('dsh_theme') theme: string = 'default';
   onChange: (v: boolean) => void = (_v: boolean) => {};
 
   build() {
@@ -653,7 +656,7 @@ struct SwitchRow {
         .padding({ left: 16 })
       Blank()
       Toggle({ type: ToggleType.Switch, isOn: this.on })
-        .selectedColor('#2D8CFA')
+        .selectedColor(Palette.accent(this.theme))
         .margin({ right: 8 })
         .onChange((v: boolean) => {
           this.on = v;

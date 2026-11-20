@@ -46,6 +46,10 @@ export default class EntryAbility extends UIAbility {
     // 界面之后再怎么 setOrCreate 都救不回来 —— 主题曾经整片不生效就是这个原因。
     AppStorage.setOrCreate('dsh_theme', PrefsStore.getThemeSync(this.context));
     AppStorage.setOrCreate('dsh_nav_style', PrefsStore.getNavStyleSync(this.context));
+    // 豆泥的轮换种子：冷启动换一次，运行期间不变。
+    // 时间戳 + 随机数，保证连着杀进程重开也不会撞到同一只。
+    AppStorage.setOrCreate('dsh_launch_seed',
+      `${Date.now()}_${Math.floor(Math.random() * 1000000)}`);
     try {
       webview.WebviewController.initializeWebEngine();
     } catch (e) {

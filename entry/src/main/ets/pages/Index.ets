@@ -18,6 +18,7 @@ import { CommunityPage } from './CommunityPage';
 import { HdsTabs, HdsNavigation, HdsNavigationMenuItemOptions, HdsNavigationTitleMode, hdsMaterial } from '@kit.UIDesignKit';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC, THEME_DOUNI } from '../common/PrefsStore';
+import { Palette } from '../common/Palette';
 import { Mascot, MascotNote } from '../common/Mascot';
 import { preferences } from '@kit.ArkData';
 import { promptAction } from '@kit.ArkUI';
@@ -513,17 +514,18 @@ export struct MainShell {
             hilog.error(0x0000, 'DSH', 'fullscreen on failed: %{public}s', JSON.stringify(e));
           });
           win.setWindowSystemBarProperties({
-            // 经典样式不依赖 setWindowLayoutFullScreen 是否生效：状态栏底色直接染成顶栏蓝，视觉无缝
-            statusBarColor: (this.needGate || this.showGuide) ? '#FFFFFF' : '#2D8CFA',
+            // 经典样式不依赖 setWindowLayoutFullScreen 是否生效：状态栏底色直接染成顶栏色，视觉无缝
+            statusBarColor: (this.needGate || this.showGuide) ? Palette.page(this.theme) : Palette.accent(this.theme),
             statusBarContentColor: (this.needGate || this.showGuide) ? '#000000' : '#FFFFFF'
           });
         } else {
           win.setWindowLayoutFullScreen(false).catch((e: BusinessError) => {
             hilog.error(0x0000, 'DSH', 'fullscreen off failed: %{public}s', JSON.stringify(e));
           });
-          // 手势导航条区域颜色由窗口底层绘制；染成与悬浮 Tab 一致的浅灰，消除小白条。
-          // 引导/登录页仍是纯白页面，保持白底不突兀。
-          win.setWindowBackgroundColor((this.needGate || this.showGuide || this.showPrivacy) ? '#FFFFFF' : '#F4F5F7');
+          // 手势导航条区域颜色由窗口底层绘制；染成与悬浮 Tab 一致的底色，消除小白条。
+          // 引导/登录页是整页底色，跟着主题走，别留一块冷白。
+          win.setWindowBackgroundColor((this.needGate || this.showGuide || this.showPrivacy)
+            ? Palette.page(this.theme) : Palette.barSoft(this.theme));
           BarUtil.gray();
         }
       });
@@ -1214,7 +1216,7 @@ export struct MainShell {
             Blank()
             Text('忘记密码')
               .fontSize(14)
-              .fontColor('#2D8CFA')
+              .fontColor(Palette.accent(this.theme))
               .onClick(() => {
                 Router.openSub('https://uia.zjgsu.edu.cn/im/V3/securitycenter/findPwd/index.zf');
               })
@@ -1234,7 +1236,7 @@ export struct MainShell {
             Blank()
             Text('首次登录请设置密码')
               .fontSize(14)
-              .fontColor('#2D8CFA')
+              .fontColor(Palette.accent(this.theme))
               .onClick(() => {
                 Router.openSub('https://uia.zjgsu.edu.cn/im/V3/securitycenter/findPwd/index.zf');
               })
@@ -1246,7 +1248,7 @@ export struct MainShell {
             .width('100%')
             .height(50)
             .borderRadius(5)
-            .backgroundColor('#4B7DD9')
+            .backgroundColor(Palette.primary(this.theme))
             .fontSize(18)
             .fontColor(Color.White)
             .enabled(!this.gateBusy)
@@ -1292,7 +1294,7 @@ export struct MainShell {
               .margin({ left: 5 })
             Text('《用户协议》')
               .fontSize(11)
-              .fontColor('#2D8CFA')
+              .fontColor(Palette.accent(this.theme))
               .onClick(() => {
                 Router.openSub('$rawfile/protocol.html');
               })
@@ -1301,7 +1303,7 @@ export struct MainShell {
               .fontColor('#000000')
             Text('《隐私声明》')
               .fontSize(11)
-              .fontColor('#2D8CFA')
+              .fontColor(Palette.accent(this.theme))
               .onClick(() => {
                 Router.openSub('$rawfile/privacy.html');
               })
@@ -1450,7 +1452,7 @@ export struct MainShell {
         },
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           },
           contentStyle: {
             titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
@@ -1511,10 +1513,9 @@ export struct MainShell {
 
   @Builder
   titleRowBuilder() {
-    Row({ space: 2 }) {
-      if (this.theme === THEME_DOUNI) {
-        Mascot({ slot: 'passive', side: TITLE_MASCOT_SIDE })
-      }
+    Row({ space: 6 }) {
+      // 文字在前、猫在后：标题必须落在和最左那条线对齐的位置上。
+      // 反过来（猫在前）会把标题整体往右推 34vp，看着就是"歪"的 —— 这是上一版的毛病。
       Text(this.currentTitle())
         // 这三个值是照系统 mini 标题**实测对齐**的，不是随手调：
         // 换成自定义 builder 之后字号/字重/颜色系统不再代劳，
@@ -1522,14 +1523,20 @@ export struct MainShell {
         // 对中文约等于 30fp 粗体，所以这里是 30 + Bold。
         .fontSize(30)
         .fontWeight(FontWeight.Bold)
-        .fontColor($r('sys.color.font_primary'))
+        .fontColor(Palette.ink(this.theme))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (this.theme === THEME_DOUNI) {
+        Mascot({ slot: 'passive', side: TITLE_MASCOT_SIDE })
+      }
     }
+    // 自定义区域默认按内容宽度**居中**摆放（这就是"歪"的由来），
+    // 必须显式撑满 + 起点对齐，标题才会回到左边。
+    .width('100%')
+    .justifyContent(FlexAlign.Start)
     .alignItems(VerticalAlign.Center)
-    // 自定义区域是从标题栏最左边算起的，系统不再给标题那圈 18vp 的起始内边距，
-    // 这里补回来，否则标题会比原来更靠左，和网页内容左边线对不上。
-    .padding({ left: 18 })
+    // 自定义区域从标题栏最左算起，系统不再给标题那圈 18vp 的起始内边距，这里补回来
+    .padding({ left: 18, right: 8 })
   }
 
   @Builder

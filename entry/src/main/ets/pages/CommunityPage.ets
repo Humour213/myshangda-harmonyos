@@ -3,6 +3,7 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
+import { Palette } from '../common/Palette';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -24,6 +25,7 @@ import {
 @Component
 export struct CommunityPage {
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  @StorageProp('dsh_theme') theme: string = 'default';
   @State version: string = '';
 
   aboutToAppear(): void {
@@ -76,7 +78,7 @@ export struct CommunityPage {
         .layoutWeight(1)
       Text(name)
         .fontSize(13)
-        .fontColor('#2D8CFA')
+        .fontColor(Palette.accent(this.theme))
     }
     .width('100%')
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })
@@ -96,7 +98,7 @@ export struct CommunityPage {
           .layoutWeight(1)
         Text('打开 >')
           .fontSize(13)
-          .fontColor('#2D8CFA')
+          .fontColor(Palette.accent(this.theme))
           .onClick(() => {
             onOpen();
           })
@@ -215,7 +217,7 @@ export struct CommunityPage {
                   .layoutWeight(1)
                 Text(this.emailReady() ? COMMUNITY_EMAIL : '待补全')
                   .fontSize(12.5)
-                  .fontColor(this.emailReady() ? '#2D8CFA' : '#C0C4CC')
+                  .fontColor(this.emailReady() ? Palette.accent(this.theme) : '#C0C4CC')
                   .onClick(() => {
                     this.mailTo();
                   })
@@ -267,14 +269,14 @@ export struct CommunityPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor(Palette.page(this.theme))
     }
     .titleBar({
       enableComponentSafeArea: true,
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           }
         },
         systemMaterialEffect: {
@@ -304,7 +306,7 @@ export struct CommunityPage {
     Row() {
       Text('·')
         .fontSize(14)
-        .fontColor('#3D6BE5')
+        .fontColor(Palette.accent(this.theme))
         .fontWeight(FontWeight.Bold)
         .margin({ right: 6 })
       Text(text)

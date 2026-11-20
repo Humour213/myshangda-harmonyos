@@ -3,6 +3,7 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
+import { Palette } from '../common/Palette';
 import { WebTab } from '../view/WebTab';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { NAV_STYLE_CLASSIC } from '../common/PrefsStore';
@@ -21,6 +22,7 @@ export struct SubPage {
   @State asAttachment: boolean = false;
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  @StorageProp('dsh_theme') theme: string = 'default';
 
   // 原生样式下把「扫一扫」放进系统标题栏菜单；与主页顶栏同一套类型写法
   scanMenu(): Array<HdsNavigationMenuItemOptions> {
@@ -118,7 +120,7 @@ export struct SubPage {
           .width('100%')
           .height(this.statusBarHeight + 52)
           .padding({ top: this.statusBarHeight })
-          .backgroundColor('#2D8CFA')
+          .backgroundColor(Palette.primary(this.theme))
         }
 
         Stack() {
@@ -160,7 +162,7 @@ export struct SubPage {
                 .height(38)
                 .fontSize(14)
                 .fontColor(Color.White)
-                .backgroundColor('#2D8CFA')
+                .backgroundColor(Palette.primary(this.theme))
                 .borderRadius(19)
                 .onClick(() => {
                   Opener.openAttachment(getContext(this) as common.UIAbilityContext, this.url, '');
@@ -183,7 +185,7 @@ export struct SubPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           }
         },
         systemMaterialEffect: {

@@ -25,8 +25,10 @@ import { THEME_DOUNI } from './PrefsStore';
  * 硬改成 notificationManager.publish 会丢掉"每周固定重复"的能力，得不偿失。
  * notify 槽位暂时只给应用内使用。
  *
- * 每个槽位的图按「槽位名 + 日期」哈希轮换：同一天内始终是同一只（不会刷一下换一张，
- * 那会显得很吵），跨天自动换。所以一槽放多张图时，"每天不一样"是免费得到的。
+ * 每个槽位的图按「槽位名 + 本次启动的种子」哈希轮换：
+ * 一次运行内始终是同一只（不会刷一下换一张，那会显得很吵），
+ * **杀掉重开就换一只**。种子由 EntryAbility.onCreate 写入，冷启动一次一个。
+ * 取不到种子（比如组件被单独预览）时退回按日期，行为跟以前一致。
  */
 const PASSIVE: Resource[] = [
   $r('app.media.douni_passive_01'),
@@ -101,6 +103,18 @@ function dayKey(): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
+/**
+ * 本次启动的轮换种子。
+ *
+ * 想让"每次打开都不一样"，种子就必须在冷启动时变一次、且在一次运行里保持不变 ——
+ * 直接用 Date.now() 当种子会让每次重绘都换图（太吵），而按日期又一天才换一次（太死）。
+ * 所以由 EntryAbility.onCreate 写一个种子进 AppStorage，这里只负责读。
+ */
+function launchSeed(): string {
+  const s: string | undefined = AppStorage.get<string>('dsh_launch_seed');
+  return (s === undefined || s === '') ? dayKey() : s;
+}
+
 /** 稳定哈希：只要求同一输入结果稳定，不要求分布均匀 */
 function hash(text: string): number {
   let h = 5381;
@@ -118,7 +132,7 @@ export class MascotPool {
     while (cur !== '' && guard < 8) {
       const arr = listOf(cur);
       if (arr.length > 0) {
-        return arr[hash(`${cur}#${dayKey()}`) % arr.length];
+        return arr[hash(`${cur}#${launchSeed()}`) % arr.length];
       }
       cur = fallbackOf(cur);
       guard++;

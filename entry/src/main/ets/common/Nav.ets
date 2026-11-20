@@ -7,6 +7,7 @@ import { webview } from '@kit.ArkWeb';
 import { window, promptAction } from '@kit.ArkUI';
 import { common, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { Palette } from './Palette';
 
 // 统一状态栏工具：一处设定，所有页面复用
 export class BarUtil {
@@ -28,15 +29,18 @@ export class BarUtil {
     }
   }
 
-  // 页面/标题栏统一浅灰背景时使用，避免状态栏与标题栏出现白灰割裂；
-  // 原生样式下底部导航条与悬浮 Tab 的灰色材质底色对齐，消除小白条白底突兀感
+  // 页面/标题栏统一底色时使用，避免状态栏与标题栏出现割裂；
+  // 原生样式下底部导航条与悬浮 Tab 的材质底色对齐，消除小白条白底突兀感。
+  // 色值跟当前配色主题走（读 AppStorage，调用点一行都不用改）。
   static gray(): void {
     try {
+      const theme: string | undefined = AppStorage.get<string>('dsh_theme');
+      const t: string = theme === undefined ? '' : theme;
       window.getLastWindow(getContext() as common.UIAbilityContext).then((win: window.Window) => {
         win.setWindowSystemBarProperties({
-          statusBarColor: '#F7F8FA',
+          statusBarColor: Palette.bar(t),
           statusBarContentColor: '#000000',
-          navigationBarColor: '#F4F5F7',
+          navigationBarColor: Palette.barSoft(t),
           navigationBarContentColor: '#000000'
         });
       });

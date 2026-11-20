@@ -9,6 +9,7 @@ import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { ClassicHeader } from '../view/ClassicHeader';
 import { NAV_STYLE_CLASSIC, THEME_DOUNI } from '../common/PrefsStore';
 import { Mascot } from '../common/Mascot';
+import { Palette } from '../common/Palette';
 import { bundleManager } from '@kit.AbilityKit';
 
 @Component
@@ -108,10 +109,10 @@ export struct AboutPage {
             Row() {
               Text('下载与源码、联系作者')
                 .fontSize(13)
-                .fontColor('#2D8CFA')
+                .fontColor(Palette.accent(this.theme))
               Text(' >')
                 .fontSize(13)
-                .fontColor('#2D8CFA')
+                .fontColor(Palette.accent(this.theme))
             }
             .margin({ top: 4, bottom: 20 })
             .onClick(() => {
@@ -140,14 +141,14 @@ export struct AboutPage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor('#F7F8FA')
+      .backgroundColor(Palette.page(this.theme))
     }
     .titleBar({
       enableComponentSafeArea: true,
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: '#F7F8FA'
+            backgroundColor: Palette.bar(this.theme)
           }
         },
         systemMaterialEffect: {
@@ -177,7 +178,7 @@ export struct AboutPage {
     Row() {
       Text('·')
         .fontSize(14)
-        .fontColor('#3D6BE5')
+        .fontColor(Palette.accent(this.theme))
         .fontWeight(FontWeight.Bold)
         .margin({ right: 6 })
       Text(text)
