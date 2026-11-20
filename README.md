@@ -6,7 +6,7 @@
 
 ![HarmonyOS](https://img.shields.io/badge/HarmonyOS-6.1.1%2B-2D8CFA)
 ![ArkTS](https://img.shields.io/badge/ArkTS-ArkUI-2D8CFA)
-![Version](https://img.shields.io/badge/version-0.2.34-2D8CFA)
+![Version](https://img.shields.io/badge/version-0.2.36-2D8CFA)
 
 ## 应用简介
 
@@ -101,6 +101,48 @@
 - 所有账号、密码与缓存均保存在设备本地，可在设置中清除。
 
 ## 更新说明
+
+### 0.2.36 — 2026-11-20
+
+**修「主题选了豆泥，界面上却一只猫都没有」。**
+
+偏好文件里明明写着 `theme=douni`，冷启动、登录页、关于页、引导页却全是原样。
+根因不在读盘，在 Decorator 的语义：
+
+`@StorageProp` 是「**构造那一刻取一次值，之后单向同步**」。如果组件构造时
+`AppStorage` 里还没有 `dsh_theme` 这个键，它就只拿到自己的默认值 `'default'`，
+**并且此后 `setOrCreate` 再怎么调都回灌不进去**。而主题原本只在 `Index.aboutToAppear`
+的异步回调里才写 `AppStorage` —— 那时页面早就构造完了，所有
+`if (this.theme === THEME_DOUNI)` 分支从头到尾都是 false。
+
+改法是把偏好的初始化提到界面之前：
+
+- `PrefsStore` 新增 `getThemeSync` / `getNavStyleSync`（`preferences.getPreferencesSync`），
+  纯读盘、不写盘，只服务启动；
+- `EntryAbility.onCreate` 在 `loadContent` **之前**同步灌好 `dsh_theme` 与 `dsh_nav_style`。
+  顺带解决了「原版样式冷启动会先闪一帧鸿蒙原生」；
+- 页面里那次异步 `getTheme` 保留，降级成兜底。
+
+同时补上两处可见性：
+
+- 冷启动加载页原来一帧都看不到（读盘比首帧还快，`gateLoading` 提前翻 false），
+  现在有 700ms 最短展示；这段本来就是 WebView 白屏，等于把白屏换成了「豆泥正在翻课表」；
+- 五个 tab 的右上角常驻一只（64vp）。选右上是因为其余三面在「我的商大」网页里
+  正好是应用宫格和页面自带的悬浮按钮，压上去两层图形会叠糊；
+  该浮层 `hitTestBehavior(None)`，不接管任何触摸。
+
+### 0.2.35 — 2026-11-20
+
+**「豆泥的一天」配色主题第一步。**
+
+和「界面样式」正交的两套外观之一：布局仍是鸿蒙原生，只是在系统材质之上叠一层小豆泥浮层。
+底栏与标题栏用的是 HDS 系统材质（`hdsMaterial`），由系统渲染，不能塞图、不能改底色，
+所以贴纸只能做浮层 —— 这也是这个主题「只加不改」的由来。
+
+15 张素材全部从白底/灰底/深红底 JPEG 抠成透明 PNG，按语义分 8 个槽位
+（passive / empty / rest / loading / error / success / praise / notify），
+按「槽位名 + 日期」哈希轮换，加图只需往数组里加一行。
+首批落地：冷启动加载页、登录页、引导页、关于页。
 
 ### 0.2.34 — 2026-11-04
 

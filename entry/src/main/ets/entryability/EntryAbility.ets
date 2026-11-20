@@ -8,6 +8,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { window } from '@kit.ArkUI';
 import { webview } from '@kit.ArkWeb';
 import { isHttpUrl } from '../common/Constants';
+import { PrefsStore } from '../common/PrefsStore';
 
 const DOMAIN = 0x0000;
 const TAG = 'EntryAbility';
@@ -40,6 +41,11 @@ export function consumeTargetUrl(want: Want | undefined): void {
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     hilog.info(DOMAIN, TAG, 'Ability onCreate');
+    // 外观偏好必须在 loadContent 之前同步灌进 AppStorage。
+    // @StorageProp 只在组件构造那一刻取一次值，键不存在就永远停在默认值上，
+    // 界面之后再怎么 setOrCreate 都救不回来 —— 主题曾经整片不生效就是这个原因。
+    AppStorage.setOrCreate('dsh_theme', PrefsStore.getThemeSync(this.context));
+    AppStorage.setOrCreate('dsh_nav_style', PrefsStore.getNavStyleSync(this.context));
     try {
       webview.WebviewController.initializeWebEngine();
     } catch (e) {

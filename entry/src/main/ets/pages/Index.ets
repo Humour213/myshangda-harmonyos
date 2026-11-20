@@ -112,6 +112,14 @@ const CLASSIC_BAR_LIFT = 24;
 const CLASSIC_BAR_BG = '#F4F5F7';
 /** 收起后底栏下移的距离：要大于「底栏高度 + 下边距」，才能完全移出屏幕 */
 const BAR_HIDDEN_MARGIN = -180;
+/**
+ * 冷启动加载页最少停留时长（毫秒）。
+ *
+ * 凭据读盘通常比第一帧还快，gateLoading 会在界面画出来之前就翻成 false，
+ * 加载页等于白写。而这之后的几百毫秒又是 WebView 的白屏，
+ * 所以这个值不会让人多等，只是把原本的白屏换成「豆泥正在翻课表」。
+ */
+const BOOT_MIN_MS = 700;
 
 /**
  * 应用外壳：登录门禁 + 五个 tab 的主界面。
@@ -143,6 +151,8 @@ export struct MainShell {
   private probeTimer: number = -1;
   /** 底栏是否已因快速滑动而收起（只改 barBottomMargin，不销毁底栏） */
   @State barHidden: boolean = false;
+  /** aboutToAppear 的时刻，用来算加载页最少还该停留多久（见 BOOT_MIN_MS） */
+  private bootTs: number = 0;
   @State tabUrls: string[] = ['', '', '', '', '', ''];
   @State tabTitles: string[] = ['', '', '', '', '', ''];
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
@@ -312,6 +322,7 @@ export struct MainShell {
 
   aboutToAppear(): void {
     const ctx = getContext(this) as common.UIAbilityContext;
+    this.bootTs = Date.now();
     // 先建立网络状态源：WebTab 通过 dsh_online 决定首次加载走在线还是离线缓存
     this.registerNetwork();
     PrefsStore.getLogin(ctx).then((l: SavedLogin) => {
@@ -328,9 +339,22 @@ export struct MainShell {
       // 「通讯录」，标题栏和内容都不是自己刚点出来的那一下，像是应用没退干净。
       this.currentTab = HOME_TAB;
       WebRegistry.setActive(`tab-${HOME_TAB}`);
-      this.gateLoading = false;
-      this.syncStatusBar();
-      this.onTargetUrl();
+      // 读盘是异步的，多数时候十几毫秒就回来了，比第一帧还早 ——
+      // 于是 gateLoading 直接翻成 false，加载页一帧都没显示过。
+      // 冷启动那几百毫秒本来也是白屏（WebView 还没画出东西），把加载页留满一个最短时长
+      // 既不增加感知等待，又让「豆泥在翻课表」真的能被看见。
+      const booted: number = Date.now() - this.bootTs;
+      const left: number = BOOT_MIN_MS - booted;
+      const enter = () => {
+        this.gateLoading = false;
+        this.syncStatusBar();
+        this.onTargetUrl();
+      };
+      if (left > 0) {
+        setTimeout(enter, left);
+      } else {
+        enter();
+      }
     });
     PrefsStore.isStatementAgreed(ctx).then((agreed: boolean) => {
       if (!agreed) {
@@ -343,7 +367,12 @@ export struct MainShell {
       this.applyWindowStyle();
     });
     // 配色主题只决定"要不要在原生光感上叠小豆泥"，不参与窗口与材质，所以不必重刷窗口样式。
-    // 默认值就是 'default'，读盘回来之前界面按原生渲染，不会先闪一下豆泥。
+    //
+    // 这里**不是**主题的主路径：真正的初始化在 EntryAbility.onCreate，
+    // 那里读盘是同步的（PrefsStore.getThemeSync），保证 loadContent 之前 AppStorage 里就有
+    // dsh_theme。因为 @StorageProp 只在组件构造那一刻取一次值，键晚到就永远同步不上 ——
+    // 曾经就是靠这一句异步 setOrCreate，结果冷启动、登录页、关于页一律不显示豆泥。
+    // 留这一句只做兜底：外观偏好万一被外部改了，回前台能自愈。
     PrefsStore.getTheme(ctx).then((t: string) => {
       AppStorage.setOrCreate('dsh_theme', t);
     });
@@ -1400,6 +1429,27 @@ export struct MainShell {
             })
             .width('100%')
             .height('100%')
+          }
+
+          // 豆泥主题：每个 tab 的右上角坐一只。
+          //
+          // 为什么单选右上角：五个 tab 全是 WebView 套壳，左下/右下在「我的商大」网页里
+          // 正好是应用宫格和页面自带的「公众号」悬浮按钮 —— 贴纸压上去两层图形叠着，
+          // 图标看不懂、悬浮按钮也点不到。右上角在主页是蓝色 banner 的装饰区，
+          // 压上去不损失任何功能入口。
+          //
+          // 为什么单独铺一层全屏 Stack 而不是给外层 Stack 换对齐：
+          // 外层那个 Alignment.Bottom 是底栏收起动画依赖的，动它会连带动到已有布局。
+          // 这层只做定位，hitTestBehavior(None) 保证整层不接管触摸 ——
+          // 网页照常滚动、点击全部穿透到下层的 WebView，等于"画上去的一张贴纸"。
+          if (this.theme === THEME_DOUNI) {
+            Stack({ alignContent: Alignment.TopEnd }) {
+              Mascot({ slot: 'passive', side: 64 })
+            }
+            .width('100%')
+            .height('100%')
+            .padding({ right: 6, top: 4 })
+            .hitTestBehavior(HitTestMode.None)
           }
         }
       }

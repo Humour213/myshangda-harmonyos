@@ -266,6 +266,39 @@ export class PrefsStore {
     }
   }
 
+  /**
+   * 同步读配色主题，**只给冷启动预热用**（EntryAbility.onCreate 里写 AppStorage）。
+   *
+   * 为什么必须是同步：@StorageProp 是「构造时取一次值 + 之后单向同步」的语义，
+   * 如果组件构造的那一刻 AppStorage 里还没有 dsh_theme 这个键，它就只拿到自己的
+   * 默认值 'default'，并且此后 AppStorage 里再怎么 setOrCreate 都不会回灌给它。
+   * 之前主题在 pages 里全是 if (this.theme === THEME_DOUNI)，于是冷启动、登录页、
+   * 关于页一律不显示豆泥 —— 就是这个原因。只有让键在 loadContent 之前就存在，
+   * 且值已经是对的那个，首帧才是对的。
+   *
+   * 界面里改主题仍然走 setTheme（异步写盘），两条路不冲突。
+   */
+  static getThemeSync(ctx: common.Context): string {
+    try {
+      const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
+      const v = store.getSync(KEY_THEME, THEME_DEFAULT) as string;
+      return v === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT;
+    } catch (e) {
+      return THEME_DEFAULT;
+    }
+  }
+
+  /** 同步读导航样式，理由同 getThemeSync（防止冷启动先闪一帧默认样式） */
+  static getNavStyleSync(ctx: common.Context): string {
+    try {
+      const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
+      const v = store.getSync(KEY_NAV_STYLE, NAV_STYLE_NATIVE) as string;
+      return v === NAV_STYLE_CLASSIC ? NAV_STYLE_CLASSIC : NAV_STYLE_NATIVE;
+    } catch (e) {
+      return NAV_STYLE_NATIVE;
+    }
+  }
+
   static async setTheme(ctx: common.UIAbilityContext, theme: string): Promise<void> {
     try {
       const store = await PrefsStore.getStore(ctx);
