@@ -3,7 +3,7 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE } from '../common/PrefsStore';
+import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE, THEME_DEFAULT, THEME_DOUNI } from '../common/PrefsStore';
 import { webview } from '@kit.ArkWeb';
 import { promptAction } from '@kit.ArkUI';
 import { notificationManager } from '@kit.NotificationKit';
@@ -376,6 +376,8 @@ export struct SettingSubPage {
   @State type: string = 'share';
   @State shakeOn: boolean = false;
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  /** 配色主题。与 navStyle 正交，两者可以任意组合 */
+  @StorageLink('dsh_theme') theme: string = 'default';
 
   pageTitle(): string {
     if (this.type === 'shake') {
@@ -464,6 +466,58 @@ export struct SettingSubPage {
     })
   }
 
+  /**
+   * 配色主题的一行。
+   *
+   * 缩略图用 Image 直出而不是 Mascot 组件：Mascot 在"非豆泥主题"时是不渲染的，
+   * 拿它做预览图会出现「没选豆泥就看不到豆泥长什么样」，等于没法选。
+   *
+   * 切换是即时的：写 AppStorage 后所有 @StorageProp/@StorageLink 同步刷新，
+   * 不需要重建页面，也不会动到 HDS 材质。
+   */
+  @Builder
+  themeRow(label: string, sub: string, value: string) {
+    Row() {
+      if (value === THEME_DOUNI) {
+        Image($r('app.media.douni_passive_01'))
+          .width(38)
+          .height(38)
+          .objectFit(ImageFit.Contain)
+          .margin({ right: 10 })
+      }
+      Column({ space: 3 }) {
+        Text(label)
+          .fontSize(16)
+          .fontColor('#1A1A1A')
+        Text(sub)
+          .fontSize(12)
+          .fontColor('#999999')
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      if (this.theme === value) {
+        Text('✓')
+          .fontSize(18)
+          .fontColor('#2D8CFA')
+          .margin({ right: 4 })
+      }
+    }
+    .width('100%')
+    .height(64)
+    .padding({ left: 16, right: 16 })
+    .backgroundColor(Color.White)
+    .onClick(() => {
+      if (this.theme !== value) {
+        AppStorage.setOrCreate('dsh_theme', value);
+        // 这里直接落盘，不像 nav_style 那样交给 Index 的 @Watch ——
+        // 主题只影响叠加层，没必要为了持久化再往 Index 挂一个监听。
+        const ctx = getContext(this) as common.UIAbilityContext;
+        PrefsStore.setTheme(ctx, value).catch(() => {
+        });
+      }
+    })
+  }
+
   @Builder
   divider() {
     Divider()
@@ -496,14 +550,34 @@ export struct SettingSubPage {
             .clip(true)
           } else if (this.type === 'style') {
             Column() {
-              this.styleRow('鸿蒙原生导航栏和标题栏样式', '系统标题栏与转场，浅色分组卡片', NAV_STYLE_NATIVE)
-              this.divider()
-              this.styleRow('原版App样式', '蓝色沉浸顶栏与原版悬浮底栏', NAV_STYLE_CLASSIC)
+              Column() {
+                this.styleRow('鸿蒙原生导航栏和标题栏样式', '系统标题栏与转场，浅色分组卡片', NAV_STYLE_NATIVE)
+                this.divider()
+                this.styleRow('原版App样式', '蓝色沉浸顶栏与原版悬浮底栏', NAV_STYLE_CLASSIC)
+              }
+              .width('100%')
+              .backgroundColor(Color.White)
+              .borderRadius(12)
+              .clip(true)
+
+              // 配色主题单独一组：它和上面的"布局样式"是两个维度，
+              // 放同一个卡片里会被误读成三选一，实际是 2×2 的四种组合。
+              Text('配色主题')
+                .fontSize(13)
+                .fontColor('#999999')
+                .margin({ left: 16, top: 20, bottom: 8 })
+              Column() {
+                this.themeRow('默认', '原生观感，不加任何装饰', THEME_DEFAULT)
+                this.divider()
+                this.themeRow('豆泥的一天', '原生光感之上，多一只陪着你的猫', THEME_DOUNI)
+              }
+              .width('100%')
+              .backgroundColor(Color.White)
+              .borderRadius(12)
+              .clip(true)
             }
             .width('100%')
-            .backgroundColor(Color.White)
-            .borderRadius(12)
-            .clip(true)
+            .alignItems(HorizontalAlign.Start)
           } else {
             Column() {
               this.linkRow('官方版本', OFFICIAL_APK_URL, true)

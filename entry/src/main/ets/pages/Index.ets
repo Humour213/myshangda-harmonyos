@@ -17,7 +17,8 @@ import { SettingsPage, SettingSubPage } from './SettingsPage';
 import { CommunityPage } from './CommunityPage';
 import { HdsTabs, HdsNavigation, HdsNavigationMenuItemOptions, HdsNavigationTitleMode, hdsMaterial } from '@kit.UIDesignKit';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
-import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC } from '../common/PrefsStore';
+import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC, THEME_DOUNI } from '../common/PrefsStore';
+import { Mascot, MascotNote } from '../common/Mascot';
 import { preferences } from '@kit.ArkData';
 import { promptAction } from '@kit.ArkUI';
 import { router } from '@kit.ArkUI';
@@ -147,6 +148,8 @@ export struct MainShell {
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
   @StorageLink('dsh_last_todo') lastTodoCount: number = 0;
   @StorageLink('dsh_nav_style') @Watch('onNavStyleChange') navStyle: string = 'native';
+  /** 配色主题。和 navStyle 正交：布局样式与配色主题可以任意组合 */
+  @StorageProp('dsh_theme') theme: string = 'default';
   @State routeHanding: boolean = false;
   /** 上一次由 onRouteEvent 自动打开的子页地址与时间，用于挡住同一地址反复自动开 */
   private lastAutoSubUrl: string = '';
@@ -338,6 +341,11 @@ export struct MainShell {
     PrefsStore.getNavStyle(ctx).then((s: string) => {
       AppStorage.setOrCreate('dsh_nav_style', s);
       this.applyWindowStyle();
+    });
+    // 配色主题只决定"要不要在原生光感上叠小豆泥"，不参与窗口与材质，所以不必重刷窗口样式。
+    // 默认值就是 'default'，读盘回来之前界面按原生渲染，不会先闪一下豆泥。
+    PrefsStore.getTheme(ctx).then((t: string) => {
+      AppStorage.setOrCreate('dsh_theme', t);
     });
     PrefsStore.getStore(ctx).then((store) => {
       store.get('guide_shown', false).then((v: preferences.ValueType) => {
@@ -1274,6 +1282,17 @@ export struct MainShell {
       .align(Alignment.Top)
       .width('100%')
       .height('100%')
+
+      // 登录页右下角探出一只。刻意用 Stack + align 绝对定位，而不是塞进上面那个 Scroll：
+      // 塞进流式布局会顶下去 100 多 vp，小屏上「登录」按钮就得滚动才看得见。
+      if (this.theme === THEME_DOUNI) {
+        Stack() {
+          Mascot({ slot: 'passive', side: 104 })
+        }
+        .align(Alignment.BottomEnd)
+        .margin({ right: 4, bottom: 4 })
+        .hitTestBehavior(HitTestMode.None)
+      }
     }
     .width('100%')
     .height('100%')
@@ -1283,7 +1302,13 @@ export struct MainShell {
     HdsNavigation(Router.stack) {
       if (this.gateLoading) {
         Column() {
-          LoadingProgress().width(32).height(32).color('#3D6BE5')
+          if (this.theme === THEME_DOUNI) {
+            // 冷启动那一下是最"空"的时刻，正好放加载态的小豆泥。
+            // 原文案「加载中…」改成「豆泥正在翻课表…」，明确的是同一件事，只是有人替你在翻。
+            MascotNote({ slot: 'loading', side: 128, caption: '豆泥正在翻课表…' })
+          } else {
+            LoadingProgress().width(32).height(32).color('#3D6BE5')
+          }
         }
         .width('100%')
         .height('100%')

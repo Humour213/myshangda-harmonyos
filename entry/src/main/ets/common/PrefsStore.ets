@@ -18,11 +18,18 @@ const KEY_PASS_ENC = 'login_pass_enc';
 const KEY_ONBOARDED = 'onboarded';
 const KEY_AGREED = 'statement_agreed_v1';
 const KEY_NAV_STYLE = 'nav_style';
+/** 配色主题（'default' | 'douni'）。与 nav_style 正交：布局样式和配色主题互不影响 */
+const KEY_THEME = 'theme';
 /** 上课提醒总开关 */
 const KEY_REMIND_ON = 'remind_on';
 
 export const NAV_STYLE_NATIVE = 'native';
 export const NAV_STYLE_CLASSIC = 'classic';
+
+/** 默认主题：原生观感，不加任何装饰 */
+export const THEME_DEFAULT = 'default';
+/** 豆泥的一天：在原生光感之上叠加小豆泥浮层（只加不改） */
+export const THEME_DOUNI = 'douni';
 
 export class SavedLogin {
   user: string = '';
@@ -244,6 +251,25 @@ export class PrefsStore {
     try {
       const store = await PrefsStore.getStore(ctx);
       await store.put(KEY_NAV_STYLE, style);
+      await store.flush();
+    } catch (e) {
+    }
+  }
+
+  static async getTheme(ctx: common.UIAbilityContext): Promise<string> {
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      const v = (await store.get(KEY_THEME, THEME_DEFAULT)) as string;
+      return v === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT;
+    } catch (e) {
+      return THEME_DEFAULT;
+    }
+  }
+
+  static async setTheme(ctx: common.UIAbilityContext, theme: string): Promise<void> {
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      await store.put(KEY_THEME, theme === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT);
       await store.flush();
     } catch (e) {
     }
