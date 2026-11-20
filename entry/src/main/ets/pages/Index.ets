@@ -1224,7 +1224,8 @@ export struct MainShell {
           // 而那一行的 marginTop 是照着原版背景图对过的，不能让错误提示改变版式。
           Row() {
             if (this.gateBusy) {
-              Text('正在验证账号密码，请稍候…')
+              // 豆泥主题下换个说法，仍是同一件事；高度 20 不变，不影响下面那行的版式
+              Text(this.theme === THEME_DOUNI ? '豆泥在帮你敲门…' : '正在验证账号密码，请稍候…')
                 .fontSize(12)
                 .fontColor('#8A8A8A')
             } else if (this.gateError !== '') {

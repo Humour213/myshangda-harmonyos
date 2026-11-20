@@ -3,7 +3,8 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-import { PrefsStore } from '../common/PrefsStore';
+import { PrefsStore, THEME_DOUNI } from '../common/PrefsStore';
+import { Mascot } from '../common/Mascot';
 import { common } from '@kit.AbilityKit';
 import { LengthMetrics } from '@kit.ArkUI';
 
@@ -22,6 +23,7 @@ export struct GuidePage {
   @State curIndex: number = 0;
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
   @StorageLink('dsh_nav_style') navStyle: string = 'native';
+  @StorageProp('dsh_theme') theme: string = 'default';
 
   private guides: GuideItem[] = (() => {
     const g1 = new GuideItem();
@@ -90,6 +92,17 @@ export struct GuidePage {
       .onChange((i: number) => {
         this.curIndex = i;
       })
+
+      // 引导页左下角蹲一只。位置按"避开居中的指示器与按钮"算：
+      // 指示器宽约 70vp 居中，按钮居中，左下 14~98 这一段是空的。
+      if (this.theme === THEME_DOUNI) {
+        Stack() {
+          Mascot({ slot: 'passive', side: 84 })
+        }
+        .align(Alignment.BottomStart)
+        .margin({ left: 14, bottom: 104 })
+        .hitTestBehavior(HitTestMode.None)
+      }
 
       Button('立即体验')
         .id('guide_btn')
