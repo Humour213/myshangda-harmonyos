@@ -12,28 +12,45 @@ import { THEME_DOUNI } from './PrefsStore';
  * 好处是加图不用改页面 —— 新图丢进 base/media、在下面加一行，第二天自动生效。
  *
  * 槽位（8 个，语义固定、图可增减）：
- *   passive  待着     默认、引导页、关于页
- *   empty    空了     列表无数据
- *   rest     没事干   今日无课、周末（默认空，退化到 empty）
- *   loading  在忙     加载中、同步
- *   error    出问题   网络失败、登录失败
- *   success  成了     登录成功、保存成功
- *   praise   厉害了   全勤、连续打卡（默认空）
- *   notify   提醒你   通知大图标（默认空，退化到 success）
+ *   passive  待着     默认、引导页、关于页            4 张
+ *   empty    空了     列表无数据                      2 张
+ *   rest     没事干   今日无课、周末                  1 张
+ *   loading  在忙     加载中、同步                    1 张
+ *   error    出问题   网络失败、登录失败              1 张
+ *   success  成了     登录成功、保存成功              3 张
+ *   praise   厉害了   全勤、连续打卡                  2 张
+ *   notify   提醒你   提醒相关（不能做通知图标，见下）  1 张
+ *
+ * 注：上课提醒走 ReminderRequestAlarm，它的字段里没有大图标位，
+ * 硬改成 notificationManager.publish 会丢掉"每周固定重复"的能力，得不偿失。
+ * notify 槽位暂时只给应用内使用。
  *
  * 每个槽位的图按「槽位名 + 日期」哈希轮换：同一天内始终是同一只（不会刷一下换一张，
  * 那会显得很吵），跨天自动换。所以一槽放多张图时，"每天不一样"是免费得到的。
  */
-const PASSIVE: Resource[] = [$r('app.media.douni_passive_01')];
-const EMPTY: Resource[] = [$r('app.media.douni_empty_01')];
-/** 先留空：rest 目前借用 empty 的「趴扁」，等有专门"躺平"的图再填进来 */
-const REST: Resource[] = [];
+const PASSIVE: Resource[] = [
+  $r('app.media.douni_passive_01'),
+  $r('app.media.douni_passive_02'),
+  $r('app.media.douni_passive_03'),
+  $r('app.media.douni_passive_04')
+];
+const EMPTY: Resource[] = [
+  $r('app.media.douni_empty_01'),
+  $r('app.media.douni_empty_02')
+];
+const REST: Resource[] = [$r('app.media.douni_rest_01')];
 const LOADING: Resource[] = [$r('app.media.douni_loading_01')];
 const ERROR: Resource[] = [$r('app.media.douni_error_01')];
-const SUCCESS: Resource[] = [$r('app.media.douni_success_01')];
-const PRAISE: Resource[] = [$r('app.media.douni_praise_01')];
-/** 先留空：notify 借用 success 的「探头爱心」 */
-const NOTIFY: Resource[] = [];
+const SUCCESS: Resource[] = [
+  $r('app.media.douni_success_01'),
+  $r('app.media.douni_success_02'),
+  $r('app.media.douni_success_03')
+];
+const PRAISE: Resource[] = [
+  $r('app.media.douni_praise_01'),
+  $r('app.media.douni_praise_02')
+];
+const NOTIFY: Resource[] = [$r('app.media.douni_notify_01')];
 
 function listOf(slot: string): Resource[] {
   switch (slot) {
