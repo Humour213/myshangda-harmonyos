@@ -13,9 +13,11 @@ import { common, Want, bundleManager } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { http, connection } from '@kit.NetworkKit';
 import { call } from '@kit.TelephonyKit';
-import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS, HIDE_MINE_EXTRA_JS } from '../service/BridgeScripts';
+import { ANDROID_BRIDGE_JS, SCHEDULE_FIX_JS, AUTO_LOGIN_JS, PAGE_BRIDGE_JS, NET_CACHE_JS, PRESS_FEEDBACK_JS, HIDE_MINE_EXTRA_JS, SEARCH_NO_FOCUS_JS, themeTintJs, THEME_UNTINT_JS } from '../service/BridgeScripts';
 import { Router, WebRegistry } from '../common/Nav';
 import { PrefsStore, SavedLogin } from '../common/PrefsStore';
+import { Palette } from '../common/Palette';
+import { themeDef } from '../common/ThemeConfig';
 import { isLoginUrl, isPortalUrl, isContactUrl, isHttpUrl, isSchoolUrl, MOBILE_UA, OFFICIAL_APK_URL } from '../common/Constants';
 import { CardSync } from '../service/CardSync';
 import { Opener } from '../service/Opener';
@@ -25,18 +27,6 @@ import { Session } from '../service/Session';
 // 注意：hilog 非 0 域在该设备上被过滤，统一用 0x0000 域保证日志可见
 const DOMAIN = 0x0000;
 const TAG = 'WebTab';
-
-/**
- * 地址变化算不算「用户点出来的」的时间窗。
- *
- * 网页里 pushState / replaceState / popstate / load 都会上报当前地址，原生据此开子页。
- * 但有一类变化不是用户意图：子页返回后 ArkWeb 会把焦点还给首页那个搜索框，H5 的
- * onfocus 里又是「跳到搜索页」，于是刚退出就又进去，反复横跳。
- *
- * 这类变化前面没有手指动作。所以只认「刚碰过屏幕」的跳转，给足 2.5 秒容忍 H5 里
- * 先请求接口再跳的慢路径；超出的变化只记日志，不开子页。
- */
-const ROUTE_GESTURE_WINDOW: number = 2500;
 
 /**
  * 门户下发的失效链接 → 现役地址。
@@ -81,9 +71,6 @@ export struct WebTab {
   /** 自动登录连跑两轮还停在统一身份认证页：凭据无效，交给 Index 退回登录页 */
   onLoginFailed: () => void = () => {};
 
-  /** 最近一次用户手指碰到网页的时间：用来判断地址变化是不是用户主动点出来的 */
-  private gestureTs: number = 0;
-
   @State loaded: boolean = false;
   @State isLoading: boolean = false;
   @State progress: number = 0;
@@ -101,15 +88,26 @@ export struct WebTab {
   @State cacheMode: CacheMode = CacheMode.Default;
   @State offlineBanner: boolean = false;
   @State refreshing: boolean = false;
+  /**
+   * 豆泥主题下网页染色是否完成、可以显示。
+   * 网页先按学校原色（白底蓝字）渲染，onPageEnd 才注入脚本染色，中间有零点几秒会闪原色。
+   * 所以在染色完成前用页面底色盖住，宁可慢一点，也要刷出来就是主题色。
+   * 默认主题恒为 true（不遮罩），观感零改动。
+   */
+  @State tintReady: boolean = true;
   @StorageLink('dsh_online') @Watch('onNetChange') online: boolean = true;
   /** 重新登录成功后（退出登录 → 再登）由 Index 递增，触发所有 tab 重载拿到新会话 */
   @StorageLink('dsh_relogin_ts') @Watch('onRelogin') reloginTs: number = 0;
+  /** 配色主题：切主题时要把已经打开的网页重新染色/撤销，不能只靠下次 onPageEnd */
+  @StorageProp('dsh_theme') @Watch('onThemeChange') theme: string = 'default';
   private showingOffline: boolean = false;
   private graceTimer: number = -1;
   private retryTimer: number = -1;
   private watchTimer: number = -1;
   private offlineTimer: number = -1;
   private refreshTimer: number = -1;
+  /** 网页染色遮罩的兜底定时器：脚本没回调成功时也要按时揭开，绝不能把网页永久盖住 */
+  private tintTimer: number = -1;
   private refreshPending: boolean = false;
   /** 上次真正触发刷新的时间：用来给下拉刷新做防抖 */
   private lastRefreshAt: number = 0;
@@ -179,6 +177,7 @@ export struct WebTab {
 
   aboutToDisappear(): void {
     WebRegistry.remove(this.tabId);
+    this.clearTintTimer();
     this.clearGrace();
     this.stopRetryLoop();
     this.clearWatch();
@@ -256,6 +255,70 @@ export struct WebTab {
     this.errMsg = '';
     this.showFallback = false;
     this.reloadWithMode(CacheMode.Default);
+  }
+
+  /**
+   * 把当前网页拉进主题色系（或撤销）。
+   *
+   * 只能"事后染色"，不能指望写在 CSS 里 —— 门户是登录后的 SPA，页面是学校自己的，
+   * 我们拿不到它的样式表。所以每次页面加载完扫一遍 DOM，按计算样式打标记类，
+   * 具体规则见 BridgeScripts.themeTintJs。
+   *
+   * 页面还没加载完时 runJavaScript 会抛，吞掉就对了：onPageEnd 里还会再调一次。
+   *
+   * 刷新时先盖住网页（tintReady=false），等染色脚本真正跑完再揭开，
+   * 这样用户看到的每一帧都是主题色，不会先闪一下学校原色。默认主题不遮罩。
+   */
+  applyTint(): void {
+    if (!themeDef(this.theme).needsTint) {
+      this.tintReady = true;
+      try {
+        this.controller.runJavaScript(THEME_UNTINT_JS);
+      } catch (e) {
+      }
+      return;
+    }
+    // 只有"页面当前不可见/刚刷新"时才需要遮罩；切主题瞬间页面已经显示，
+    // 此时再盖一层会看到闪一下，所以由调用方（onPageBegin）决定是否先遮。
+    try {
+      const js: string = themeTintJs(
+        Palette.page(this.theme), Palette.primary(this.theme), Palette.accent(this.theme),
+        Palette.line(this.theme), Palette.lineSoft(this.theme), Palette.lineFaint(this.theme));
+      const p: Promise<Object> = this.controller.runJavaScript(js) as Promise<Object>;
+      // 脚本同步 paint() 完首屏就已是主题色；补扫是给 SPA 后插入节点的，不必等。
+      // then 里揭开遮罩，catch/超时兜底，保证任何情况下都不会把网页永久盖住。
+      p.then(() => {
+        this.revealTinted();
+      }).catch(() => {
+        this.revealTinted();
+      });
+      // 兜底：runJavaScript 的 Promise 某些页面不回调，1.2 秒后无条件揭开
+      this.clearTintTimer();
+      this.tintTimer = setTimeout(() => {
+        this.revealTinted();
+      }, 1200);
+    } catch (e) {
+      this.revealTinted();
+    }
+  }
+
+  /** 揭开染色遮罩（同时清掉兜底定时器），可重复调用 */
+  revealTinted(): void {
+    this.clearTintTimer();
+    this.tintReady = true;
+  }
+
+  clearTintTimer(): void {
+    if (this.tintTimer >= 0) {
+      clearTimeout(this.tintTimer);
+      this.tintTimer = -1;
+    }
+  }
+
+  onThemeChange(): void {
+    // 切主题时页面已在显示：豆泥即时染色、默认即时撤销，都不重新遮罩（避免闪一下）
+    this.tintReady = true;
+    this.applyTint();
   }
 
   onActiveChange(): void {
@@ -836,7 +899,10 @@ export struct WebTab {
           // 放在 onPageEnd 里会有两个窟窿 —— 杀后台走缓存恢复时 onPageEnd 可能早就不来了；
           // 而它就算来了，也往往比按钮渲染还早，等扫描窗口一过，按钮才慢悠悠地长出来。
           // 脚本自己会判断路径，非 /my 直接 return，所以只需限定门户域名。
-          { script: HIDE_MINE_EXTRA_JS, scriptRules: ['*://myapp.zjgsu.edu.cn/*'] }
+          { script: HIDE_MINE_EXTRA_JS, scriptRules: ['*://myapp.zjgsu.edu.cn/*'] },
+          // 首页搜索框：拦掉 H5 的「聚焦后自动跳搜索页」，点击直接让原生开子页。
+          // document-start 挂捕获监听，早于页面自己的 onfocus 绑定；返回后搜索框不会带焦点。
+          { script: SEARCH_NO_FOCUS_JS, scriptRules: ['*://myapp.zjgsu.edu.cn/*'] }
         ])
         .onControllerAttached(() => {
           WebRegistry.put(this.tabId, this.controller);
@@ -865,6 +931,11 @@ export struct WebTab {
         })
         .onPageBegin((_event) => {
           hilog.info(DOMAIN, TAG, 'pageBegin %{public}s', this.rootUrl);
+          // 豆泥主题：新页面一开始渲染就用页面底色盖住，等 onPageEnd 染色完成后揭开，
+          // 避免先看到学校原色（白底蓝字）再跳成暖色的闪烁。
+          if (themeDef(this.theme).needsTint) {
+            this.tintReady = false;
+          }
           this.isLoading = true;
           this.loadFailed = false;
           this.errMsg = '';
@@ -891,6 +962,8 @@ export struct WebTab {
           // 网络错误页同样会触发 pageEnd，不能当成功页面：离线模式下立即给兜底页，避免长时间白屏
           if (this.loadFailed) {
             this.loaded = false;
+            // 加载失败没有染色可等，揭开遮罩，别把空白页一直盖住
+            this.revealTinted();
             if (this.cacheMode === CacheMode.Only) {
               this.errMsg = this.fallbackMsg();
               this.showFallback = true;
@@ -951,6 +1024,9 @@ export struct WebTab {
             } catch (e) {
             }
           }
+          // 主题染色：放在最后、对所有页面都跑 —— 登录页、门户、通讯录、课表同属一个应用，
+          // 只有一半页面暖一半页面冷反而更割裂。默认主题下这里是空操作（只是删掉标记）。
+          this.applyTint();
           let pass0 = this.creds.pass;
           if (pass0 === '') {
             const sp = AppStorage.get<string>('dsh_session_pass') ?? '';
@@ -1135,6 +1211,16 @@ export struct WebTab {
       .onRefreshing(() => {
         this.startRefresh();
       })
+
+      // 豆泥主题染色遮罩：页面加载/刷新期间盖住学校原色，等染色脚本跑完再揭开。
+      // 用页面底色而非白，第一眼就是奶油色；不拦点击（染色很快完成，且失败有兜底揭开）。
+      if (themeDef(this.theme).needsTint && !this.tintReady) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Palette.page(this.theme))
+          .hitTestBehavior(HitTestMode.None)
+      }
 
       // 离线缓存条：明确告知当前内容来自缓存，可手动重连；联网后会自动消失
       if (this.offlineBanner && !this.showFallback) {
@@ -1328,18 +1414,11 @@ export struct WebTab {
   }
 
   /**
-   * 网页上报的地址变化：只有刚发生过触摸才算用户主动跳转。
-   *
-   * 反例就是首页搜索框：点一下 → 拿到焦点 → H5 跳搜索页 → 开子页；
-   * 退出子页时焦点被还回去 → H5 又跳一次。第二次前面没有手指动作，这里挡掉。
-   * 挡掉的是「自动开子页」，页面本身该显示什么不受影响。
+   * 网页上报的地址变化，交给 Index 决定是否开子页。
+   * 首页搜索框的自动跳转已在 SEARCH_NO_FOCUS_JS 里从源头拦掉（点一下直接开子页，
+   * 输入框不再拿焦点），所以这里不需要再靠手势时间窗猜是不是用户主动点的。
    */
   private handleRoute(url: string): void {
-    const gap: number = Date.now() - this.gestureTs;
-    if (gap > ROUTE_GESTURE_WINDOW) {
-      hilog.info(DOMAIN, TAG, 'route dropped (no gesture, %{public}dms) %{public}s', gap, url);
-      return;
-    }
     this.onRouteEvent(url);
   }
 
@@ -1351,9 +1430,8 @@ export struct WebTab {
    * 方向判定和阈值留给 Index 统一处理。
    */
   private handleTouch(e: TouchEvent): void {
-    // 任何触摸类型都刷新一次：Web 是原生组件，Down 不一定送到 ArkUI 层，
-    // 用 Move / Up 兜上，只要手指确实碰过屏幕就算数。
-    this.gestureTs = Date.now();
+    // 返回后的焦点补扫：用户又摸网页说明要重新操作了，别再抢输入框焦点
+    Router.stopRelease();
     if (e.type !== TouchType.Move) {
       if (e.type === TouchType.Down) {
         if (e.touches.length > 0) {

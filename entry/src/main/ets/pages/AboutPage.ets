@@ -7,9 +7,10 @@ import { Router } from '../common/Nav';
 import { BarUtil } from '../common/Nav';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { ClassicHeader } from '../view/ClassicHeader';
-import { NAV_STYLE_CLASSIC, THEME_DOUNI } from '../common/PrefsStore';
+import { NAV_STYLE_CLASSIC } from '../common/PrefsStore';
 import { Mascot } from '../common/Mascot';
 import { Palette } from '../common/Palette';
+import { themeDef } from '../common/ThemeConfig';
 import { bundleManager } from '@kit.AbilityKit';
 
 @Component
@@ -121,10 +122,10 @@ export struct AboutPage {
 
             // 关于页是整份文档读完之后的地方，情绪是"看完松一口气"，
             // 放一只待着的豆泥收尾刚好；不写标语，一句话就够。
-            if (this.theme === THEME_DOUNI) {
+            if (themeDef(this.theme).decorated) {
               Column({ space: 4 }) {
                 Mascot({ slot: 'passive', side: 108 })
-                Text('豆泥陪你上课')
+                Text(themeDef(this.theme).aboutCaption)
                   .fontSize(11)
                   .fontColor('#AAAAAA')
               }
@@ -148,7 +149,13 @@ export struct AboutPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥：和状态栏同为 accent 棕，上下连成一片；默认主题沿用 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
+          },
+          contentStyle: {
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') }
           }
         },
         systemMaterialEffect: {

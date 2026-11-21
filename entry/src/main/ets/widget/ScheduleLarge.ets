@@ -8,6 +8,8 @@
  * 下面是被降级的课程列表（圆点 + 课名 + 地点 + 开始时间）。
  * 信息比小卡更多：保留了地点和「共几节 · 还剩几节」。
  */
+import { CardMascot } from '../common/CardMascot';
+import { themeDef } from '../common/ThemeConfig';
 @Entry
 @Component
 struct ScheduleLarge {
@@ -23,6 +25,24 @@ struct ScheduleLarge {
   @LocalStorageProp('accent') accent: string = '#8A94A6';
   @LocalStorageProp('tint') tint: string = '#F0F2F6';
   @LocalStorageProp('ink') ink: string = '#232A36';
+  @LocalStorageProp('theme') theme: string = '';
+  @LocalStorageProp('mascot') mascot: string = 'passive';
+
+  /** 豆泥主题贴纸：叠在主视觉右上角，资源写死（卡片里不能拼资源名） */
+  @Builder
+  douni() {
+    if (CardMascot.pick(this.theme, this.mascot) !== undefined) {
+      Image(CardMascot.pick(this.theme, this.mascot))
+        .width(33)
+        .height(33)
+        .objectFit(ImageFit.Contain)
+        .opacity(0.96)
+        // 从右下角往左挪一点：贴纸在白卡 BottomEnd，加 right 外边距即可左移，
+        // 不碰 heroName / 时间地点那几行（它们在上方）
+        .margin({ right: 8, bottom: 2 })
+        .hitTestBehavior(HitTestMode.None)
+    }
+  }
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
   @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('f0') f0: string = '';
@@ -169,7 +189,9 @@ struct ScheduleLarge {
       .width('100%')
       .margin({ bottom: 7 })
 
-      // 主视觉：全卡唯一一张白卡
+      // 主视觉：全卡唯一一张白卡。豆泥贴纸叠在右下角(进度条上方空白处)，
+      // 用 Stack 不占布局高度，避开顶部的状态标签/剩余时间和课名主体。
+      Stack({ alignContent: Alignment.BottomEnd }) {
       Column() {
         Row() {
           Text(this.heroTag)
@@ -222,9 +244,14 @@ struct ScheduleLarge {
       }
       .width('100%')
       .padding({ left: 12, right: 12, top: 10, bottom: 11 })
-      .backgroundColor('#FFFFFF')
+      // 豆泥主题下白卡换成暖白，和奶油底同色系、不刺眼，仍比底色亮一档保留层次
+      .backgroundColor(themeDef(this.theme).card.heroSurface)
       .borderRadius(13)
       .alignItems(HorizontalAlign.Start)
+
+        this.douni()
+      }
+      .width('100%')
 
       List({ space: 1 }) {
         ListItem() {

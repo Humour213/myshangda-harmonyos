@@ -4,6 +4,7 @@
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
 import { Palette } from '../common/Palette';
+import { themeDef } from '../common/ThemeConfig';
 import { WebTab } from '../view/WebTab';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
 import { NAV_STYLE_CLASSIC } from '../common/PrefsStore';
@@ -185,7 +186,13 @@ export struct SubPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥：和状态栏同为 accent 棕，上下连成一片；默认主题沿用 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
+          },
+          contentStyle: {
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') }
           }
         },
         systemMaterialEffect: {
@@ -202,14 +209,17 @@ export struct SubPage {
     .hideTitleBar(this.navStyle === NAV_STYLE_CLASSIC)
     .onShown(() => {
       if (this.navStyle === NAV_STYLE_CLASSIC) {
-        BarUtil.blue();
+        BarUtil.topBar(this.theme);
       } else {
         BarUtil.gray();
       }
     })
     .onHidden(() => {
+      // 子页退出时释放搜索框的输入焦点：焦点留在 input 上会让下一次返回被 WebView 消费，
+      // 页面就退不干净。只做焦点收尾，不拦跳转。
+      Router.releaseInput();
       if (this.navStyle === NAV_STYLE_CLASSIC) {
-        BarUtil.blue();
+        BarUtil.topBar(this.theme);
       } else {
         BarUtil.gray();
       }

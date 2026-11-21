@@ -17,8 +17,9 @@ import { SettingsPage, SettingSubPage } from './SettingsPage';
 import { CommunityPage } from './CommunityPage';
 import { HdsTabs, HdsNavigation, HdsNavigationMenuItemOptions, HdsNavigationTitleMode, hdsMaterial } from '@kit.UIDesignKit';
 import { Router, WebRegistry, BarUtil } from '../common/Nav';
-import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC, THEME_DOUNI } from '../common/PrefsStore';
+import { PrefsStore, SavedLogin, NAV_STYLE_CLASSIC } from '../common/PrefsStore';
 import { Palette } from '../common/Palette';
+import { themeDef } from '../common/ThemeConfig';
 import { Mascot, MascotNote } from '../common/Mascot';
 import { preferences } from '@kit.ArkData';
 import { promptAction } from '@kit.ArkUI';
@@ -167,7 +168,9 @@ export struct MainShell {
   @StorageLink('dsh_last_todo') lastTodoCount: number = 0;
   @StorageLink('dsh_nav_style') @Watch('onNavStyleChange') navStyle: string = 'native';
   /** 配色主题。和 navStyle 正交：布局样式与配色主题可以任意组合 */
-  @StorageProp('dsh_theme') theme: string = 'default';
+  // @Watch：切配色主题时立刻重设窗口/状态栏颜色。之前没挂监听，
+  // 主题变了但状态栏要等进二级页触发 BarUtil.gray() 才跟着变，割裂。
+  @StorageProp('dsh_theme') @Watch('onThemeChange') theme: string = 'default';
   @State routeHanding: boolean = false;
   /** 上一次由 onRouteEvent 自动打开的子页地址与时间，用于挡住同一地址反复自动开 */
   private lastAutoSubUrl: string = '';
@@ -364,31 +367,17 @@ export struct MainShell {
         enter();
       }
     });
-    PrefsStore.isStatementAgreed(ctx).then((agreed: boolean) => {
-      if (!agreed) {
+    // 隐私声明 / 外观偏好 / 引导标记原本分四条 Promise 链读同一个 preferences，合并为一次。
+    // 主题主路径仍在 EntryAbility.onCreate 同步写 AppStorage，这里只做回前台自愈兜底。
+    PrefsStore.getUiPrefs(ctx).then((p) => {
+      if (!p.agreed) {
         // 首启隐私弹窗：页面级自定义弹窗（跳转协议页不消失、拦截侧滑/返回）
         this.openPrivacyDialog();
       }
-    });
-    PrefsStore.getNavStyle(ctx).then((s: string) => {
-      AppStorage.setOrCreate('dsh_nav_style', s);
+      AppStorage.setOrCreate('dsh_nav_style', p.navStyle);
+      AppStorage.setOrCreate('dsh_theme', p.theme);
+      this.showGuide = !p.guideShown;
       this.applyWindowStyle();
-    });
-    // 配色主题只决定"要不要在原生光感上叠小豆泥"，不参与窗口与材质，所以不必重刷窗口样式。
-    //
-    // 这里**不是**主题的主路径：真正的初始化在 EntryAbility.onCreate，
-    // 那里读盘是同步的（PrefsStore.getThemeSync），保证 loadContent 之前 AppStorage 里就有
-    // dsh_theme。因为 @StorageProp 只在组件构造那一刻取一次值，键晚到就永远同步不上 ——
-    // 曾经就是靠这一句异步 setOrCreate，结果冷启动、登录页、关于页一律不显示豆泥。
-    // 留这一句只做兜底：外观偏好万一被外部改了，回前台能自愈。
-    PrefsStore.getTheme(ctx).then((t: string) => {
-      AppStorage.setOrCreate('dsh_theme', t);
-    });
-    PrefsStore.getStore(ctx).then((store) => {
-      store.get('guide_shown', false).then((v: preferences.ValueType) => {
-        this.showGuide = !(v === true);
-        this.applyWindowStyle();
-      });
     });
     try {
       window.getLastWindow(ctx).then((win: window.Window) => {
@@ -514,23 +503,35 @@ export struct MainShell {
             hilog.error(0x0000, 'DSH', 'fullscreen on failed: %{public}s', JSON.stringify(e));
           });
           win.setWindowSystemBarProperties({
-            // 经典样式不依赖 setWindowLayoutFullScreen 是否生效：状态栏底色直接染成顶栏色，视觉无缝
-            statusBarColor: (this.needGate || this.showGuide) ? Palette.page(this.theme) : Palette.accent(this.theme),
+            // 经典样式：状态栏跟自绘顶栏同色才不割裂。
+            // 豆泥主题下顶栏用 accent 深棕（小豆泥毛发采样色），与下段奶油底构成两段配色；
+            // 默认主题的顶栏原本就是品牌蓝，Palette.accent(default) 仍是那个蓝，没动。
+            statusBarColor: (this.needGate || this.showGuide)
+              ? Palette.page(this.theme) : Palette.accent(this.theme),
             statusBarContentColor: (this.needGate || this.showGuide) ? '#000000' : '#FFFFFF'
           });
         } else {
           win.setWindowLayoutFullScreen(false).catch((e: BusinessError) => {
             hilog.error(0x0000, 'DSH', 'fullscreen off failed: %{public}s', JSON.stringify(e));
           });
-          // 手势导航条区域颜色由窗口底层绘制；染成与悬浮 Tab 一致的底色，消除小白条。
-          // 引导/登录页是整页底色，跟着主题走，别留一块冷白。
-          win.setWindowBackgroundColor((this.needGate || this.showGuide || this.showPrivacy)
-            ? Palette.page(this.theme) : Palette.barSoft(this.theme));
+          // 下段窗口底：豆泥主题取 page，和导航条/网页同色；默认主题维持原来的条件写法，一个字没动。
+          // 上段状态栏独立走 accent 深棕（见 BarUtil.gray），构成上下两段。
+          const decoratedWin: boolean = themeDef(this.theme).decorated;
+          win.setWindowBackgroundColor(decoratedWin
+            ? Palette.page(this.theme)
+            : ((this.needGate || this.showGuide || this.showPrivacy)
+              ? Palette.page(this.theme) : Palette.barSoft(this.theme)));
           BarUtil.gray();
         }
       });
     } catch (e) {
     }
+  }
+
+  onThemeChange(): void {
+    // 切主题后状态栏/窗口底色要立刻跟上：native 分支走 BarUtil.gray 的 accent，
+    // classic 分支走 applyWindowStyle 里的顶栏同色。两条路都在这里重新应用。
+    this.applyWindowStyle();
   }
 
   onNavStyleChange(): void {
@@ -1263,7 +1264,7 @@ export struct MainShell {
           Row() {
             if (this.gateBusy) {
               // 豆泥主题下换个说法，仍是同一件事；高度 20 不变，不影响下面那行的版式
-              Text(this.theme === THEME_DOUNI ? '豆泥在帮你敲门…' : '正在验证账号密码，请稍候…')
+              Text(themeDef(this.theme).loginHint)
                 .fontSize(12)
                 .fontColor('#8A8A8A')
             } else if (this.gateError !== '') {
@@ -1324,7 +1325,7 @@ export struct MainShell {
 
       // 登录页右下角探出一只。刻意用 Stack + align 绝对定位，而不是塞进上面那个 Scroll：
       // 塞进流式布局会顶下去 100 多 vp，小屏上「登录」按钮就得滚动才看得见。
-      if (this.theme === THEME_DOUNI) {
+      if (themeDef(this.theme).decorated) {
         Stack() {
           Mascot({ slot: 'passive', side: 104 })
         }
@@ -1341,10 +1342,10 @@ export struct MainShell {
     HdsNavigation(Router.stack) {
       if (this.gateLoading) {
         Column() {
-          if (this.theme === THEME_DOUNI) {
+          if (themeDef(this.theme).decorated) {
             // 冷启动那一下是最"空"的时刻，正好放加载态的小豆泥。
             // 原文案「加载中…」改成「豆泥正在翻课表…」，明确的是同一件事，只是有人替你在翻。
-            MascotNote({ slot: 'loading', side: 128, caption: '豆泥正在翻课表…' })
+            MascotNote({ slot: 'loading', side: 128, caption: themeDef(this.theme).loadingHint })
           } else {
             LoadingProgress().width(32).height(32).color('#3D6BE5')
           }
@@ -1381,11 +1382,16 @@ export struct MainShell {
                   TabContent() {
                     this.webTabFor(tab, idx)
                   }
-                  .tabBar(BottomTabBarStyle.of(this.currentTab === idx ? tab.iconOnClassic : tab.iconOffClassic, tab.label)
+                  .tabBar(BottomTabBarStyle.of(
+                    this.currentTab === idx
+                      ? (themeDef(this.theme).tabIcons[tab.id])
+                      : tab.iconOffClassic, tab.label)
                     .labelStyle({
-                      // 两个颜色都跟 currentTab 走，和图标同步翻转（详见 labelColorOf 注释）
-                      selectedColor: this.labelColorOf(idx, '#2D8CFA', '#C1C1C1'),
-                      unselectedColor: this.labelColorOf(idx, '#2D8CFA', '#C1C1C1')
+                      // 两个颜色都跟 currentTab 走，和图标同步翻转（详见 labelColorOf 注释）。
+                      // 豆泥主题下选中色取 accent 暖棕，和棕色图标/状态栏/顶栏一致；
+                      // 默认主题仍是原来的品牌蓝 #2D8CFA，观感零改动。
+                      selectedColor: this.labelColorOf(idx, Palette.accent(this.theme), '#C1C1C1'),
+                      unselectedColor: this.labelColorOf(idx, Palette.accent(this.theme), '#C1C1C1')
                     }))
                 }, (tab: TabDef) => `${tab.id}`)
               }
@@ -1452,10 +1458,14 @@ export struct MainShell {
         },
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥主题：标题栏染成和状态栏同为深棕(accent)，上下连成一片；
+            // 默认主题沿用原来的 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
           },
           contentStyle: {
-            titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') },
             menuStyle: {
               backgroundColor: $r('sys.color.comp_background_tertiary'),
               iconColor: $r('sys.color.icon_primary')
@@ -1523,10 +1533,11 @@ export struct MainShell {
         // 对中文约等于 30fp 粗体，所以这里是 30 + Bold。
         .fontSize(30)
         .fontWeight(FontWeight.Bold)
-        .fontColor(Palette.ink(this.theme))
+        // 豆泥下标题栏是深棕底，文字要反白；默认主题保持原来的深色字
+        .fontColor(themeDef(this.theme).titleOnAccent ? '#FFFFFF' : Palette.ink(this.theme))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-      if (this.theme === THEME_DOUNI) {
+      if (themeDef(this.theme).decorated) {
         Mascot({ slot: 'passive', side: TITLE_MASCOT_SIDE })
       }
     }

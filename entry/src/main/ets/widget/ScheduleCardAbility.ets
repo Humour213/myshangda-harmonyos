@@ -10,6 +10,9 @@ import { util } from '@kit.ArkTS';
 import { ScheduleData, CourseItem } from '../common/ScheduleTypes';
 import { parseSchedule } from '../service/ScheduleParse';
 import { PERIOD_START, PERIOD_END } from '../common/Periods';
+import { PrefsStore } from '../common/PrefsStore';
+import { THEME_DEFAULT, isDecoratedTheme, themeDef } from '../common/ThemeConfig';
+import { CardSync } from '../service/CardSync';
 
 /**
  * 卡片数据，一套数据供两族卡片渲染：
@@ -48,6 +51,10 @@ class CardData {
   accent: string = '#8A94A6';
   tint: string = '#F0F2F6';
   ink: string = '#232A36';
+  /** 豆泥主题时为 'douni'：卡片跟着换暖色系并显示贴纸；默认主题为空 */
+  theme: string = '';
+  /** 贴纸槽位（卡片侧据此选图，资源名不能拼接所以只能传语义）：rest/empty/success/passive */
+  mascot: string = 'passive';
   /** 下一次该刷新卡片的分钟数（下课那一刻），<=0 表示不用单独定时 */
   nextMin: number = -1;
   t0: string = ''; n0: string = ''; p0: string = ''; f0: string = '';
@@ -61,12 +68,7 @@ class CardData {
 }
 
 /** 每一节的起止时间（学校作息）统一放在 common/Periods.ets，提醒模块也用同一份 */
-
-const FG: string[] = ['#1E63B4', '#12806A', '#2B57C6', '#B4531A', '#5A3EBA',
-  '#3F7A22', '#B02A2A', '#8A5B00'];
-
-/** 明天预告统一用靛蓝，整组是"同一块内容" */
-const TM_FG: string = '#3A568C';
+// 课程字色、明天预告色、各状态三色都移到 ThemeConfig 的 CardPalette，按主题查表。
 
 /**
  * 课表桌面卡片的数据提供者（此刻卡 1×2/2×2/2×4 + 列表卡 2×2/2×4 共用）。
@@ -78,12 +80,29 @@ const TM_FG: string = '#3A568C';
 export default class ScheduleCardAbility extends FormExtensionAbility {
   onAddForm(want: Want): formBindingData.FormBindingData {
     const d: CardData = this.buildData();
+    // 记录 formId：应用侧切主题时要遍历这些 id 主动刷新（getFormsInfo 不含运行时 formId）
+    try {
+      const id = want.parameters?.['ohos.extra.param.key.form_identity'];
+      if (id !== undefined) {
+        CardSync.addFormId(this.context, String(id));
+      }
+    } catch (err) {
+      // 忽略
+    }
     this.armTimer(want, d.nextMin);
     return formBindingData.createFormBindingData(d);
   }
 
+  onRemoveForm(formId: string): void {
+    CardSync.removeFormId(this.context, formId);
+  }
+
   onUpdateForm(formId: string): void {
     try {
+      // 补录 formId：老版本添加的卡片没走过新版 onAddForm，id 没进列表，
+      // 应用侧切主题 refreshAllForms 就刷不到它。系统定时/下拉刷新会带真实 id 进来，
+      // 这里顺势登记，旧卡也能被纳入即时刷新范围。
+      CardSync.addFormId(this.context, formId);
       const d: CardData = this.buildData();
       const obj: formBindingData.FormBindingData = formBindingData.createFormBindingData(d);
       formProvider.updateForm(formId, obj).then(() => {
@@ -133,11 +152,28 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
   private buildData(): CardData {
     const d: CardData = this.buildDataInner();
     this.paint(d);
+    // 贴纸按语义槽位走：没课/周末=休息，课表空=空，上完=庆祝，其余=待着。
+    if (d.state === 'none' || d.state === 'tomorrow') {
+      d.mascot = 'rest';
+    } else if (d.state === 'done') {
+      d.mascot = 'success';
+    } else {
+      d.mascot = 'passive';
+    }
     return d;
   }
 
   private buildDataInner(): CardData {
     const d: CardData = new CardData();
+    // 卡片进程读不到 AppStorage，主题从共享 preferences 同步读；
+    // 拿到后随数据下发给卡片，卡片据此换色 / 显示贴纸 / 选课程色板。
+    try {
+      const t: string = PrefsStore.getThemeSync(this.context);
+      // 默认主题沿用空字符串（widget 里 '' 即默认），其余主题下发 id 供查表
+      d.theme = isDecoratedTheme(t) ? t : '';
+    } catch (err) {
+      // 读不到就当默认主题，卡片照常显示
+    }
     d.head = `${this.dateText()} ${this.weekdayText()}`;
     d.state = 'none';
     d.heroTag = '没课';
@@ -151,6 +187,7 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
         d.heroName = '还没导入课表';
         d.heroNote = '点开导入';
         d.listLabel = '还没导入课表';
+        d.summary = d.listLabel;
         return d;
       }
       const size: number = fileIo.statSync(path).size;
@@ -161,11 +198,16 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       const txt: string = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(buf));
       const s: ScheduleData = parseSchedule(txt);
       const today: number = this.todayIndex();
-      // 周末不预告"明天"（周六的明天是周日、周日的明天是周一，容易误导）
+      // 周末也往后找最近有课的工作日；实在找不到才留一句"最近都没课"
       if (today < 0) {
-        d.heroTag = '周末';
+        if (this.fillNextDay(d, s, '')) {
+          return d;
+        }
+        d.heroTag = '假期';
+        d.heroName = '最近都没课';
         d.heroNote = '好好休息';
-        d.listLabel = '今天没课';
+        d.listLabel = '最近都没课';
+        d.summary = d.listLabel;
         return d;
       }
       const todayList: CourseItem[] = [];
@@ -176,8 +218,15 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       }
       todayList.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
       if (todayList.length === 0) {
-        // 今天整天没课：直接把明天顶上来，总比一句"今天没有课"有用
-        this.fillTomorrow(d, s, today, '今天没课');
+        // 今天没课就往后找：明天 → 后天 → 下周最近一天，卡片直接显示那天有课。
+        if (this.fillNextDay(d, s, '')) {
+          return d;
+        }
+        d.heroTag = '没课';
+        d.heroName = '最近都没课';
+        d.heroNote = '好好休息';
+        d.listLabel = '最近都没课';
+        d.summary = d.listLabel;
         return d;
       }
 
@@ -199,7 +248,7 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
 
       if (remaining.length === 0) {
         // 今天的课上完了：整列换成明天的课
-        if (this.fillTomorrow(d, s, today, '今天上完了')) {
+        if (this.fillNextDay(d, s, '今天上完了')) {
           return d;
         }
         d.state = 'done';
@@ -240,9 +289,10 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
       d.listLabel = `今天还有 ${remaining.length} 节`;
 
       // 列表：还没上完的全部课程，含正在上/下一节
+      const palette: string[] = themeDef(d.theme).card.courseFg;
       for (let i = 0; i < remaining.length && i < 8; i++) {
         const c: CourseItem = remaining[i];
-        this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, FG[i % FG.length]);
+        this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, palette[i % palette.length]);
       }
       return d;
     } catch (err) {
@@ -250,65 +300,86 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     }
   }
 
-  /**
-   * 把卡片切到明天：主视觉换成明天第一节，head 说明今天的情况，
-   * 列表则整列换成明天的全部课程（列表卡要完整的一天）。
-   *
-   * @param head 卡片顶部小字，用来交代今天为什么没课了
-   * @returns 明天确实有课才返回 true
-   */
-  private fillTomorrow(d: CardData, s: ScheduleData, today: number, head: string): boolean {
-    const day: number = this.tomorrowIndex(today);
-    const list: CourseItem[] = [];
-    for (let i = 0; i < s.courses.length; i++) {
-      if (s.courses[i].day === day) {
-        list.push(s.courses[i]);
+  /** 从明天开始，列出未来两周内所有工作日相对今天的天数 */
+  private upcomingOffsets(): number[] {
+    const out: number[] = [];
+    const base: Date = new Date();
+    base.setHours(0, 0, 0, 0);
+    for (let step = 1; step <= 14; step++) {
+      const dt: Date = new Date(base.getTime());
+      dt.setDate(base.getDate() + step);
+      const wd: number = dt.getDay();
+      if (wd !== 0 && wd !== 6) {
+        out.push(step);
       }
     }
-    if (list.length === 0) {
-      return false;
-    }
-    list.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
-    const first: CourseItem = list[0];
-    d.state = 'tomorrow';
-    d.head = head;
-    d.heroTag = '明天';
-    d.heroName = first.name;
-    d.heroTime = this.timeRange(first.start, first.span);
-    d.heroPlace = first.place;
-    d.heroNote = `共 ${list.length} 节`;
-    d.listLabel = `明天 · 共 ${list.length} 节`;
-    d.summary = `明天共 ${list.length} 节`;
-    for (let i = 0; i < list.length && i < 8; i++) {
-      const c: CourseItem = list[i];
-      this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place, TM_FG);
-    }
-    return true;
+    return out;
   }
 
-  /** 按状态配色：上课中=绿、下节=靛蓝、已结束=灰蓝、没课=中性灰、明天=淡蓝 */
-  private paint(d: CardData): void {
-    if (d.state === 'now') {
-      d.accent = '#2E9E63';
-      d.tint = '#E9F5EE';
-      d.ink = '#16301F';
-    } else if (d.state === 'next') {
-      d.accent = '#4A5CD0';
-      d.tint = '#ECF0FC';
-      d.ink = '#1A2138';
-    } else if (d.state === 'tomorrow') {
-      d.accent = '#3A568C';
-      d.tint = '#E8EEF9';
-      d.ink = '#22304D';
-    } else if (d.state === 'done') {
-      d.accent = '#6B7A99';
-      d.tint = '#EDF0F6';
-      d.ink = '#232A36';
-    } else {
-      d.accent = '#8A94A6';
-      d.tint = '#F0F2F6';
-      d.ink = '#232A36';
+  private dayLabel(offset: number, day: number): string {
+    if (offset === 1) { return '明天'; }
+    if (offset === 2) { return '后天'; }
+    const names: string[] = ['一', '二', '三', '四', '五'];
+    return day >= 0 && day < names.length ? `周${names[day]}` : '下周';
+  }
+
+  /**
+   * 往后找最近有课的一天：明天 → 后天 → 再往后最近的工作日。
+   * 找不到才返回 false，由调用方留一句"最近都没课"。
+   *
+   * @param head 顶部小字；传空串时用「X天有课」自动描述这一天
+   */
+  private fillNextDay(d: CardData, s: ScheduleData, head: string): boolean {
+    const offsets: number[] = this.upcomingOffsets();
+    for (let k = 0; k < offsets.length; k++) {
+      const offset: number = offsets[k];
+      const dt: Date = new Date();
+      dt.setDate(dt.getDate() + offset);
+      const day: number = dt.getDay() - 1;
+      const list: CourseItem[] = [];
+      for (let i = 0; i < s.courses.length; i++) {
+        if (s.courses[i].day === day) {
+          list.push(s.courses[i]);
+        }
+      }
+      if (list.length === 0) {
+        continue;
+      }
+      list.sort((a: CourseItem, b: CourseItem): number => a.start - b.start);
+      const first: CourseItem = list[0];
+      const label: string = this.dayLabel(offset, day);
+      d.state = 'tomorrow';
+      d.head = head.length > 0 ? head : `${label}有课`;
+      d.heroTag = label;
+      d.heroName = first.name;
+      d.heroTime = this.timeRange(first.start, first.span);
+      d.heroPlace = first.place;
+      d.heroNote = `共 ${list.length} 节`;
+      d.listLabel = `${label} · 共 ${list.length} 节`;
+      d.summary = `${label}共 ${list.length} 节`;
+      for (let i = 0; i < list.length && i < 8; i++) {
+        const c: CourseItem = list[i];
+        this.setSlot(d, i, this.timeRange(c.start, c.span), c.name, c.place,
+          themeDef(d.theme).card.tomorrowFg);
+      }
+      return true;
     }
+    return false;
+  }
+
+  /**
+   * 按状态配色。所有主题的色板都在 ThemeConfig.CardPalette 里，
+   * 这里只按 state 取对应的一组三色 —— 加主题不用改这里。
+   */
+  private paint(d: CardData): void {
+    const card = themeDef(d.theme).card;
+    const c = d.state === 'now' ? card.now
+      : d.state === 'next' ? card.next
+        : d.state === 'tomorrow' ? card.tomorrow
+          : d.state === 'done' ? card.done : card.none;
+    d.accent = c.accent;
+    d.tint = c.tint;
+    d.ink = c.ink;
   }
 
   /** 定时刷新的分钟数：至少 5 分钟（系统下限），最多 12 小时 */
@@ -356,14 +427,6 @@ export default class ScheduleCardAbility extends FormExtensionAbility {
     } else if (i === 7) {
       d.t7 = t; d.n7 = n; d.p7 = p; d.f7 = fg;
     }
-  }
-
-  /** 明天（跳过周末）的星期索引 */
-  private tomorrowIndex(today: number): number {
-    if (today < 0) {
-      return 0;
-    }
-    return today >= 4 ? 0 : today + 1;
   }
 
   private startMinutes(c: CourseItem): number {

@@ -10,6 +10,9 @@
  * 只是把还没上完的课按时间排下来，上完一节少一条，全上完切成明天。
  */
 
+import { CardMascot } from '../common/CardMascot';
+import { themeDef } from '../common/ThemeConfig';
+
 const L_BLOCK_BG: string[] = ['#D6E9FF', '#D6F5EA', '#D6E4FF', '#FFE7D1',
   '#E3DDFF', '#D9F7D0', '#FFD9D9', '#FFE9B8'];
 const L_TM_BG: string = '#E5EBFA';
@@ -21,6 +24,21 @@ struct ScheduleListLarge {
   @LocalStorageProp('state') state: string = 'none';
   @LocalStorageProp('listLabel') listLabel: string = '';
   @LocalStorageProp('summary') summary: string = '';
+  @LocalStorageProp('theme') theme: string = '';
+  @LocalStorageProp('mascot') mascot: string = 'passive';
+
+  /** 豆泥主题贴纸：叠在抬头行右侧，资源写死 */
+  @Builder
+  douni() {
+    if (CardMascot.pick(this.theme, this.mascot) !== undefined) {
+      Image(CardMascot.pick(this.theme, this.mascot))
+        .width(32)
+        .height(32)
+        .objectFit(ImageFit.Contain)
+        .opacity(0.96)
+        .hitTestBehavior(HitTestMode.None)
+    }
+  }
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
   @LocalStorageProp('p0') p0: string = ''; @LocalStorageProp('f0') f0: string = '';
@@ -79,10 +97,24 @@ struct ScheduleListLarge {
   }
 
   private fb(i: number): string {
+    if (this.theme !== '') {
+      return this.state === 'tomorrow' ? themeDef(this.theme).card.listTomorrow
+        : themeDef(this.theme).card.listBlock[i % themeDef(this.theme).card.listBlock.length];
+    }
     if (this.state === 'tomorrow') {
       return L_TM_BG;
     }
     return L_BLOCK_BG[i % L_BLOCK_BG.length];
+  }
+
+  /** 没有任何课程块时给列表区放一句明确的话，而不是留一片空白 */
+  private hasBlocks(): boolean {
+    for (let i = 0; i < 8; i++) {
+      if (this.fn(i).length > 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Builder
@@ -126,11 +158,18 @@ struct ScheduleListLarge {
         Text(this.head)
           .fontSize(15)
           .fontWeight(FontWeight.Medium)
-          .fontColor(this.state === 'tomorrow' ? '#2E4A7D' : '#1A1A1A')
+          .fontColor(this.theme !== '' ? themeDef(this.theme).card.none.ink
+            : (this.state === 'tomorrow' ? '#2E4A7D' : '#1A1A1A'))
         Blank()
-        Text(this.summary)
-          .fontSize(11)
-          .fontColor('#A8B0BC')
+        // 明天状态下 summary（"明天共N节"）和下面那行胶囊 listLabel（"明天 · 共N节"）
+        // 说的是同一件事，留一个即可——胶囊带底色更醒目，所以明天时这里不渲染 summary。
+        // 非明天状态下面没有胶囊，summary（"共N节 · 还剩M节"）照常显示。
+        if (this.state !== 'tomorrow') {
+          Text(this.summary)
+            .fontSize(11)
+            .fontColor('#A8B0BC')
+        }
+        this.douni()
       }
       .width('100%')
       .padding({ left: 14, right: 14, top: 12, bottom: 6 })
@@ -140,9 +179,9 @@ struct ScheduleListLarge {
           Text(this.listLabel)
             .fontSize(11)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#3A568C')
+            .fontColor(this.theme !== '' ? themeDef(this.theme).card.pillInk : '#3A568C')
             .padding({ left: 8, right: 8, top: 3, bottom: 3 })
-            .backgroundColor('#DCE5F8')
+            .backgroundColor(this.theme !== '' ? themeDef(this.theme).card.pillBg : '#DCE5F8')
             .borderRadius(7)
         }
         .width('100%')
@@ -152,26 +191,39 @@ struct ScheduleListLarge {
       // 留白 10vp，卡片外弧半径按 18 算，滚动区内缩 10vp，裁切弧取 18 - 10 = 8，
       // 内外两条弧同心平行，留白不会被裁切吃掉。
       Column() {
-        List({ space: 7 }) {
-          ListItem() {
-            Column({ space: 7 }) {
-              ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
-                if (this.fn(i).length > 0) {
-                  this.block(i)
-                }
-              }, (i: number) => String(i))
+        if (this.hasBlocks()) {
+          List({ space: 7 }) {
+            ListItem() {
+              Column({ space: 7 }) {
+                ForEach([0, 1, 2, 3, 4, 5, 6, 7], (i: number) => {
+                  if (this.fn(i).length > 0) {
+                    this.block(i)
+                  }
+                }, (i: number) => String(i))
+              }
+              .width('100%')
+              .padding({ top: 6, bottom: 0 })
+              .alignItems(HorizontalAlign.Start)
             }
-            .width('100%')
-            .padding({ top: 6, bottom: 0 })
-            .alignItems(HorizontalAlign.Start)
           }
+          .width('100%')
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.None)
+          .borderRadius({ bottomLeft: 8, bottomRight: 8 })
+          .clip(true)
+        } else {
+          Column() {
+            Text(this.listLabel.length > 0 ? this.listLabel : '今天没课')
+              .fontSize(14)
+              .fontColor(this.theme !== '' ? themeDef(this.theme).card.subInk : '#8A8F98')
+              .textAlign(TextAlign.Center)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+          .borderRadius({ bottomLeft: 8, bottomRight: 8 })
         }
-        .width('100%')
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .edgeEffect(EdgeEffect.None)
-        .borderRadius({ bottomLeft: 8, bottomRight: 8 })
-        .clip(true)
       }
       .width('100%')
       .layoutWeight(1)
@@ -179,7 +231,9 @@ struct ScheduleListLarge {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF')
+    .backgroundColor(this.theme !== '' ? (this.state === 'tomorrow'
+        ? themeDef(this.theme).card.tomorrowSurface : themeDef(this.theme).card.surface)
+      : (this.state === 'tomorrow' ? '#F4F7FE' : '#FFFFFF'))
     .onClick(() => {
       postCardAction(this, {
         action: 'router',

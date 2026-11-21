@@ -121,7 +121,13 @@ export const PAGE_BRIDGE_JS = `(function(){
           }
         }
       };
-      setInterval(rename, 1200);
+      // 只负责首屏文案替换；找到后或最多扫 36 秒就停，避免页面生命周期里一直空转
+      var renameTicks = 0;
+      var renameTimer = setInterval(function(){
+        renameTicks++;
+        rename();
+        if (renamed || renameTicks >= 30) { clearInterval(renameTimer); }
+      }, 1200);
       // 抽屉里那条「2507090113(本科生)」会把页面带去二级首页，不是用户想要的行为，直接吞掉
       var acctPat = /^[0-9A-Za-z]{6,}\\s*[（(]\\s*(本科生|研究生|专科生|教职工|学生|教师)\\s*[)）]$/;
       document.addEventListener('click', function(e){
@@ -356,6 +362,74 @@ export const ANDROID_BRIDGE_JS = `(function(){
   };
   try { window.android = bridge; } catch (e) {}
   return 'ok';
+})();`;
+
+/**
+ * 首页搜索框「只跳转、不聚焦」。
+ *
+ * 学校 H5 原本是：搜索框拿到焦点 → onfocus 里自己跳 /home/search。
+ * 这条链导致子页返回后内核又把焦点还给搜索框，软键盘和跳转都跟着回来。
+ * 这里在 document-start 抢先拦住搜索框的按下/点击，直接让原生开子页，
+ * 从源头不给它聚焦机会。只在门户首页启用，搜索页自己仍可正常输入。
+ */
+export const SEARCH_NO_FOCUS_JS = `(function(){
+  if (window.__dshSearchNoFocus) { return 'ok'; }
+  window.__dshSearchNoFocus = true;
+  try {
+    var p = (location.pathname || '').toLowerCase();
+    if (p.indexOf('/home/index') < 0 && p !== '/' && p !== '/home') { return 'skip'; }
+    var url = '/home/search';
+    try { url = new URL('/home/search', location.href).href; } catch (e) {}
+    var last = 0;
+    function isSearchBox(el) {
+      if (!el || el.nodeType !== 1) { return false; }
+      var tag = String(el.tagName || '').toUpperCase();
+      if (tag !== 'INPUT' && tag !== 'TEXTAREA' && el.getAttribute('contenteditable') !== 'true') { return false; }
+      var s = [el.getAttribute('placeholder'), el.getAttribute('aria-label'), el.getAttribute('name'), el.getAttribute('id')].join(' ');
+      if (s.indexOf('搜索') >= 0 || String(el.getAttribute('type') || '').toLowerCase() === 'search') { return true; }
+      // 兜底：首页顶部那条搜索框的 placeholder 是「搜索应用、通知」；
+      // 站点哪天把属性换空了，就按可见文案再认一次。
+      try { if ((el.innerText || el.value || '').indexOf('搜索') >= 0) { return true; } } catch (e) {}
+      return false;
+    }
+    function openSearch() {
+      var now = Date.now();
+      if (now - last < 1200) { return; }
+      last = now;
+      if (window.__dshNative && typeof window.__dshNative.openWith === 'function') {
+        try { window.__dshNative.openWith(url); } catch (e) {}
+        return;
+      }
+      // document-start 时原生桥可能还没注册；排队等它就绪，期间不碰输入框焦点。
+      var tries = 0;
+      var timer = setInterval(function(){
+        if (window.__dshNative && typeof window.__dshNative.openWith === 'function') {
+          clearInterval(timer);
+          try { window.__dshNative.openWith(url); } catch (e) {}
+          return;
+        }
+        if (++tries > 40) { clearInterval(timer); }
+      }, 100);
+    }
+    function hook(e) {
+      var el = e.target;
+      for (var k = 0; k < 4 && el && el.nodeType === 1; k++) {
+        if (isSearchBox(el)) {
+          try { el.blur(); } catch (e2) {}
+          try { e.preventDefault(); } catch (e3) {}
+          try { e.stopPropagation(); } catch (e4) {}
+          if (e.stopImmediatePropagation) { try { e.stopImmediatePropagation(); } catch (e5) {} }
+          openSearch();
+          return;
+        }
+        el = el.parentElement;
+      }
+    }
+    document.addEventListener('touchstart', hook, true);
+    document.addEventListener('mousedown', hook, true);
+    document.addEventListener('click', hook, true);
+    return 'ok';
+  } catch (e) { return 'fail'; }
 })();`;
 
 // 课表页面周表容器高度修复（ArkWeb 渲染与原壳不一致导致格子重叠/裁切）
@@ -730,6 +804,192 @@ export const HIDE_MINE_EXTRA_JS = `(function(){
     var iv = setInterval(function(){ sweep(); if (--left <= 0) { clearInterval(iv); } }, 350);
 
     setTimeout(dump, 1500);
+    return 'ok';
+  } catch (e) { return 'fail'; }
+})();`;
+
+/**
+ * 把网页内容也拉进豆泥主题的色系里。
+ *
+ * 为什么必须注入：外壳（状态栏 / 标题栏 / 页面底）全在原生侧，改一下 Palette 就行；
+ * 但屏幕中间那一大块是学校的 H5，它自己用白底 + 品牌蓝。外壳换成暖奶油之后，
+ * 中间还是冷白冷蓝，接缝一眼就看得出来 —— 用户要的"同一个色系"只能进网页里改。
+ *
+ * 为什么不直接写死 CSS 选择器：门户是登录后的 SPA，抓不到静态 HTML，类名不可知，
+ * 而且学校随时改版。所以走"扫一遍 DOM、按**计算样式**打标记类"这条路：
+ *   白底 → 打 dshTintW；蓝底 → dshTintB；蓝字 → dshTintT；蓝边框 → dshTintD
+ * 再注入一张只管这四个类的样式表。好处是：
+ *   1. 不碰元素原本的 inline style（打 class 而不是 setProperty，撤销时干干净净）；
+ *   2. 类名带前缀，跟站点自己的类不会撞；
+ *   3. 撤销只要删掉 <style> 和那几个 class，网页立刻回到原样。
+ *
+ * 代价是要逐元素 getComputedStyle，所以限了 5000 个元素、只跑几个时间点，
+ * 并且已经打过标记的立刻跳过（SPA 二次渲染时只处理新增的）。
+ */
+export function themeTintJs(pageBg: string, surface: string, accent: string,
+  line: string, lineSoft: string, lineFaint: string): string {
+  return `(function(){
+  try {
+    var PAGE = '${pageBg}', PRI = '${surface}', ACC = '${accent}';
+    var LINE = '${line}', LINE_S = '${lineSoft}', LINE_F = '${lineFaint}';
+    var SET = { dshTintW: 1, dshTintB: 1, dshTintT: 1, dshTintD: 1,
+                dshTintN1: 1, dshTintN2: 1, dshTintN3: 1 };
+    var st = document.getElementById('dsh-tint');
+    if (!st) {
+      st = document.createElement('style');
+      st.id = 'dsh-tint';
+      (document.head || document.documentElement).appendChild(st);
+    }
+    st.textContent =
+      'html,body{background-color:' + PAGE + ' !important;}' +
+      // background-image:none 很关键：站点大量白色块其实是渐变/背景图，不改 backgroundColor 不生效
+      '.dshTintW{background-color:' + PAGE + ' !important;background-image:none !important;}' +
+      '.dshTintB{background-color:' + PRI + ' !important;background-image:none !important;}' +
+      '.dshTintW::before,.dshTintW::after{background-color:' + PAGE + ' !important;}' +
+      '.dshTintB::before,.dshTintB::after{background-color:' + PRI + ' !important;}' +
+      '.dshTintT{color:' + ACC + ' !important;}' +
+      '.dshTintD{border-color:' + ACC + ' !important;}' +
+      // 灰边按原深浅映射到主题的三档中性色，保留层次而不是一律染成强调色
+      '.dshTintN1{border-color:' + LINE + ' !important;}' +
+      '.dshTintN2{border-color:' + LINE_S + ' !important;}' +
+      '.dshTintN3{border-color:' + LINE_F + ' !important;}';
+
+    function rgb(c) {
+      var m = /rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?/.exec(c || '');
+      if (!m) { return null; }
+      var a = m[4] === undefined ? 1 : parseFloat(m[4]);
+      if (a < 0.5) { return null; }
+      return [+m[1], +m[2], +m[3]];
+    }
+    function isWhite(c) {
+      var v = rgb(c); if (!v) { return false; }
+      // 站点里很多"白块"是 #F7F7F7 / #FAFAFA，不是纯白，原来一律漏掉
+      return v[0] >= 235 && v[1] >= 235 && v[2] >= 235;
+    }
+    function isWhiteImage(s) {
+      var bi = s.backgroundImage || '';
+      if (bi === 'none') { return false; }
+      return /rgb\\(\\s*2[3-5]\\d,\\s*2[3-5]\\d,\\s*2[3-5]\\d/.test(bi) ||
+             /#fff(?:fff)?\\b|white/i.test(bi);
+    }
+    function isBlue(c) {
+      var v = rgb(c); if (!v) { return false; }
+      return v[2] > 110 && (v[2] - Math.max(v[0], v[1])) > 40;
+    }
+    function tag(el, cls) {
+      if (!el.classList || el.classList.contains(cls)) { return; }
+      el.classList.add(cls);
+    }
+
+    // 课表格子（dl.week dd）保留站点的背景和文字色，避免"棕底棕字"看不清；
+    // 边框则按原色系处理：蓝色→强调色，灰色→主题的三档中性灰。
+    function inScheduleCell(el) {
+      return !!(el.closest && el.closest('dl.week dd'));
+    }
+    // 取第一条真正可见的边框颜色，避免 border:none 的元素被误判
+    function borderColor(s) {
+      var w = [s.borderTopWidth, s.borderRightWidth, s.borderBottomWidth, s.borderLeftWidth];
+      var c = [s.borderTopColor, s.borderRightColor, s.borderBottomColor, s.borderLeftColor];
+      for (var i = 0; i < w.length; i++) {
+        if (parseFloat(w[i]) > 0) { return c[i]; }
+      }
+      return null;
+    }
+    // 灰色按明暗分三档：深边→LINE，中边→LINE_S，浅边→LINE_F；
+    // 彩色（饱和度高）返回 0，交给别的规则处理。
+    function grayTier(color) {
+      var v = rgb(color); if (!v) { return 0; }
+      var hi = Math.max(v[0], v[1], v[2]);
+      var lo = Math.min(v[0], v[1], v[2]);
+      if (hi - lo > 20) { return 0; }
+      var avg = (v[0] + v[1] + v[2]) / 3;
+      if (avg >= 250) { return 0; }
+      if (avg < 205) { return 1; }
+      if (avg < 232) { return 2; }
+      return 3;
+    }
+
+    var done = 0;
+    function paint() {
+      if (!document.body) { return done; }
+      var all = document.body.getElementsByTagName('*');
+      var lim = Math.min(all.length, 5000);
+      for (var i = 0; i < lim; i++) {
+        var el = all[i];
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') { continue; }
+        if (el.getAttribute('data-dsh-tint') === '1') { continue; }
+        var s = getComputedStyle(el);
+        var inCell = inScheduleCell(el);
+        if (!inCell) {
+          if (isWhite(s.backgroundColor) || isWhiteImage(s)) { tag(el, 'dshTintW'); }
+          else if (isBlue(s.backgroundColor)) { tag(el, 'dshTintB'); }
+          if (isBlue(s.color)) { tag(el, 'dshTintT'); }
+        }
+        // 只动 border-color，不动背景和文字；
+        // 蓝色边→强调色，灰色边按原先深浅映射到主题三档中性色。
+        var bc = borderColor(s);
+        if (bc) {
+          if (isBlue(bc)) {
+            tag(el, 'dshTintD');
+          } else {
+            var tier = grayTier(bc);
+            if (tier === 1) { tag(el, 'dshTintN1'); }
+            else if (tier === 2) { tag(el, 'dshTintN2'); }
+            else if (tier === 3) { tag(el, 'dshTintN3'); }
+          }
+        }
+        el.setAttribute('data-dsh-tint', '1');
+        done++;
+      }
+      return done;
+    }
+
+    paint();
+    setTimeout(paint, 300);
+    setTimeout(paint, 900);
+    // 后续插入的节点交给下面的 MutationObserver 补扫，不再固定多跑两轮
+    // SPA 后续插入的节点不会再走上面几个时间点，挂一个只监听 childList 的观察者补刀。
+    // 不监听 attributes，避免 paint() 自己打的 class 触发无限循环。
+    if (window.__dshTintObserver) { window.__dshTintObserver.disconnect(); }
+    try {
+      var pending = null;
+      var mo = new MutationObserver(function (records) {
+        var added = false;
+        for (var i = 0; i < records.length; i++) {
+          if (records[i].addedNodes && records[i].addedNodes.length) { added = true; break; }
+        }
+        if (!added) { return; }
+        if (pending) { clearTimeout(pending); }
+        pending = setTimeout(paint, 120);
+      });
+      mo.observe(document.documentElement || document.body, { childList: true, subtree: true });
+      window.__dshTintObserver = mo;
+    } catch (e) { /* 老内核没有 MutationObserver 就退回到定时扫描 */ }
+    return 'ok';
+  } catch (e) { return 'fail'; }
+})();`;
+}
+
+/**
+ * 撤销上面的染色，把网页恢复原样。
+ *
+ * 切回默认主题时必须跑：只删样式表是不够的 —— 标记类留着虽然没人管，
+ * 但下次再染色时会被"已处理"的判定跳过，颜色就永远回不来了。
+ * 所以这里连 data 标记一起清，让下一次染色从零开始。
+ */
+export const THEME_UNTINT_JS = `(function(){
+  try {
+    if (window.__dshTintObserver) { window.__dshTintObserver.disconnect(); window.__dshTintObserver = null; }
+    var st = document.getElementById('dsh-tint');
+    if (st && st.parentNode) { st.parentNode.removeChild(st); }
+    var cls = ['dshTintW', 'dshTintB', 'dshTintT', 'dshTintD',
+               'dshTintN1', 'dshTintN2', 'dshTintN3'];
+    var hit = document.querySelectorAll('.dshTintW,.dshTintB,.dshTintT,.dshTintD,.dshTintN1,.dshTintN2,.dshTintN3');
+    for (var i = 0; i < hit.length; i++) {
+      for (var j = 0; j < cls.length; j++) { hit[i].classList.remove(cls[j]); }
+    }
+    var marked = document.querySelectorAll('[data-dsh-tint]');
+    for (var k = 0; k < marked.length; k++) { marked[k].removeAttribute('data-dsh-tint'); }
     return 'ok';
   } catch (e) { return 'fail'; }
 })();`;

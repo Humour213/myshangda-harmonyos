@@ -7,6 +7,8 @@
  * 小卡片 2×2：整卡用状态色的浅调打底，唯一一张白卡承载"此刻"（上课中/下节/明天第一节），
  * 白卡下方的剩余课程只剩圆点 + 课名 + 时间，退为次要信息。
  */
+import { CardMascot } from '../common/CardMascot';
+import { themeDef } from '../common/ThemeConfig';
 @Entry
 @Component
 struct ScheduleSmall {
@@ -20,6 +22,23 @@ struct ScheduleSmall {
   @LocalStorageProp('accent') accent: string = '#8A94A6';
   @LocalStorageProp('tint') tint: string = '#F0F2F6';
   @LocalStorageProp('ink') ink: string = '#232A36';
+  @LocalStorageProp('theme') theme: string = '';
+  @LocalStorageProp('mascot') mascot: string = 'passive';
+
+  /** 豆泥主题贴纸：叠在整张卡片右下角，资源写死（卡片里不能拼资源名） */
+  @Builder
+  douni() {
+    if (CardMascot.pick(this.theme, this.mascot) !== undefined) {
+      Image(CardMascot.pick(this.theme, this.mascot))
+        .width(32)
+        .height(32)
+        .objectFit(ImageFit.Contain)
+        .opacity(0.96)
+        // 贴纸在整卡右下角，往里收一点不贴边；不吞点击（整卡要点进去课表）
+        .margin({ right: 8, bottom: 6 })
+        .hitTestBehavior(HitTestMode.None)
+    }
+  }
 
   @LocalStorageProp('t0') t0: string = ''; @LocalStorageProp('n0') n0: string = '';
   @LocalStorageProp('f0') f0: string = '';
@@ -130,8 +149,11 @@ struct ScheduleSmall {
   }
 
   build() {
+    // 最外层用 Stack：小豆泥贴纸叠在【整张 2×2 卡片】的右下角（课程列表那一层的角落），
+    // 不是白色主视觉块的右下角。贴纸不占布局高度，课程列表照常铺到底。
+    Stack({ alignContent: Alignment.BottomEnd }) {
     Column() {
-      // 主视觉：全卡唯一一张白卡，"此刻"的答案就落在这里
+      // 主视觉：全卡唯一一张白卡，"此刻"的答案就落在这里。
       Column() {
         Row() {
           Text(this.heroTag)
@@ -186,9 +208,11 @@ struct ScheduleSmall {
       }
       .width('100%')
       .padding({ left: 10, right: 10, top: 8, bottom: 9 })
-      .backgroundColor('#FFFFFF')
+      // 豆泥主题下白卡换成暖白（比奶油底亮一档，保留"卡片浮起来"的层次，但不像纯白那样刺眼）
+      .backgroundColor(themeDef(this.theme).card.heroSurface)
       .borderRadius(11)
       .alignItems(HorizontalAlign.Start)
+      .width('100%')
 
       // 下下节及以后：可以滑，行高固定 30vp 且滚动结束后吸附到行首，
       // 底部按卡片的圆角裁切，切边是弧线而不是一条直线
@@ -222,6 +246,13 @@ struct ScheduleSmall {
         params: { 'tab': '2' }
       });
     })
+
+      // 小豆泥贴纸作为整卡 Stack 的第二个子元素，叠在整张卡片右下角。
+      // 默认主题下 Mascot/贴图自身不渲染（这里 theme 判断），等于没有这一层。
+      this.douni()
+    }
+    .width('100%')
+    .height('100%')
 
   }
 }

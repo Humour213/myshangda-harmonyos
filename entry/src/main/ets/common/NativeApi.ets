@@ -12,22 +12,6 @@ import { BASE_URL, MOBILE_UA } from './Constants';
 const TAG = 'NativeApi';
 const DOMAIN = 0x0002;
 
-export class ServiceItem {
-  name: string = '';
-  icon: string = '';
-  url: string = '';
-}
-
-export class CarouselItem {
-  img: string = '';
-  url: string = '';
-}
-
-export class BasicInfo {
-  name: string = '';
-  avatar: string = '';
-}
-
 async function getCookie(url: string): Promise<string> {
   try {
     const c = webview.WebCookieManager.fetchCookieSync(url);
@@ -60,113 +44,6 @@ export async function apiGet(path: string): Promise<string> {
   }
 }
 
-function pickStr(obj: Record<string, Object>, key: string): string {
-  const v = obj[key];
-  if (typeof v === 'string') {
-    return v as string;
-  }
-  if (typeof v === 'number') {
-    return `${v}`;
-  }
-  return '';
-}
-
-// 用户信息 /api/basic/info -> {data:{name|xm, avatar|tx, ...}}
-export async function fetchBasicInfo(): Promise<BasicInfo> {
-  const info = new BasicInfo();
-  const body = await apiGet('/api/basic/info');
-  try {
-    fileIo.writeSync(fileIo.openSync(getContext().filesDir + '/basic.json',
-      fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC).fd, body);
-  } catch (e) {
-  }
-  if (body === '') {
-    return info;
-  }
-  try {
-    const root = JSON.parse(body) as Record<string, Object>;
-    const data = root['data'] as Record<string, Object>;
-    if (data) {
-      info.name = pickStr(data, 'nc') || pickStr(data, 'name') || pickStr(data, 'xm');
-      info.avatar = pickStr(data, 'txdz') || pickStr(data, 'headPortrait') || pickStr(data, 'avatar');
-      if (info.avatar !== '' && !info.avatar.startsWith('http')) {
-        info.avatar = `${BASE_URL}${info.avatar}`;
-      }
-    }
-  } catch (e) {
-  }
-  return info;
-}
-
-// 轮播 /api/personal/cytp?tplx=carousel
-export async function fetchCarousel(): Promise<CarouselItem[]> {
-  const list: CarouselItem[] = [];
-  const body = await apiGet('/api/personal/cytp?tplx=carousel');
-  if (body === '') {
-    return list;
-  }
-  try {
-    const root = JSON.parse(body) as Record<string, Object>;
-    const data = root['data'] as Array<Record<string, Object>>;
-    if (data) {
-      for (const item of data) {
-        const c = new CarouselItem();
-        c.img = pickStr(item, 'img') || pickStr(item, 'pic') || pickStr(item, 'tp');
-        c.url = pickStr(item, 'url') || pickStr(item, 'lj');
-        if (c.img !== '') {
-          if (!c.img.startsWith('http')) {
-            c.img = `${BASE_URL}${c.img}`;
-          }
-          list.push(c);
-        }
-      }
-    }
-  } catch (e) {
-  }
-  return list;
-}
-
-// 服务宫格 /api/service/linksByYhjs?ljlx=n&sfyd=1  ljlx: 2常用查询 3常用服务 4常用链接 1我的服务
-export async function fetchServices(ljlx: number): Promise<ServiceItem[]> {
-  const list: ServiceItem[] = [];
-  hilog.info(DOMAIN, TAG, 'fetchServices %{public}d start', ljlx);
-  const body = await apiGet(`/api/service/linksByYhjs?ljlx=${ljlx}&sfyd=1`);
-  if (body === '') {
-    hilog.error(DOMAIN, TAG, 'fetchServices body empty');
-    return list;
-  }
-  try {
-    hilog.info(DOMAIN, TAG, 'fetchServices body head %{public}s', body.substring(0, 200));
-    const root = JSON.parse(body) as Record<string, Object>;
-    let data = root['data'] as Array<Record<string, Object>>;
-    if (!data) {
-      hilog.error(DOMAIN, TAG, 'fetchServices data field missing, keys: %{public}s', Object.keys(root).join(','));
-    }
-    if (!data) {
-      data = root['rows'] as Array<Record<string, Object>>;
-    }
-    if (data) {
-      for (const item of data) {
-        const sv = new ServiceItem();
-        sv.name = pickStr(item, 'ljmc') || pickStr(item, 'name') || pickStr(item, 'mc') || pickStr(item, 'title');
-        sv.icon = pickStr(item, 'imgSrc') || pickStr(item, 'icon') || pickStr(item, 'tb') || pickStr(item, 'img');
-        sv.url = pickStr(item, 'ljdz') || pickStr(item, 'url') || pickStr(item, 'lj') || pickStr(item, 'link');
-        if (sv.name !== '') {
-          if (sv.icon !== '' && !sv.icon.startsWith('http')) {
-            sv.icon = `${BASE_URL}${sv.icon}`;
-          }
-          if (sv.url !== '' && !sv.url.startsWith('http')) {
-            sv.url = `${BASE_URL}${sv.url}`;
-          }
-          list.push(sv);
-        }
-      }
-    }
-  } catch (e) {
-  }
-  return list;
-}
-
 // 待办数量 /api/xxzx2.0/todo/queryList?currentPage=1&pageSize=1
 export async function fetchTodoCount(): Promise<number> {
   const body = await apiGet('/api/xxzx2.0/todo/queryList?currentPage=1&pageSize=1&hasmobile=1');
@@ -195,17 +72,8 @@ export async function fetchTodoCount(): Promise<number> {
   return 0;
 }
 
-// 兼容命名导入
-//
-// 现状（0.2.29 起）：只有 fetchTodoCount 还在用（Index 拿待办数推通知、亮角标）。
-// 另外三个原本是「首页 / 我的」两个原生页面的数据源，那套原生页面已经删掉了 ——
-// 全 WebView 之后四个 tab 都直接加载学校网页，不再需要自己画一遍首页和我的。
-// 方法本身留着：它们是对学校这几个接口（轮播、服务九宫格、用户资料）的封装，
-// 将来若把某个 tab 改成原生视图可以直接接上，不必重新摸一遍接口。
-// 哪天确认不需要了，连同下面的 BasicInfo / CarouselItem / ServiceItem 一起删。
+// 兼容命名导入：目前只有 fetchTodoCount 在用（Index 拿待办数推通知、亮角标）。
+// 原生日首页/我的页已删除，轮播/服务九宫格/用户资料那几个接口封装也一并清掉。
 export class NativeApi {
-  static fetchBasicInfo: (path?: never) => Promise<BasicInfo> = fetchBasicInfo;
-  static fetchCarousel = fetchCarousel;
-  static fetchServices = fetchServices;
   static fetchTodoCount = fetchTodoCount;
 }

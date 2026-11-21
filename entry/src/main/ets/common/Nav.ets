@@ -7,40 +7,40 @@ import { webview } from '@kit.ArkWeb';
 import { window, promptAction } from '@kit.ArkUI';
 import { common, Want } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { inputMethod } from '@kit.IMEKit';
 import { Palette } from './Palette';
+import { themeDef } from './ThemeConfig';
 
 // 统一状态栏工具：一处设定，所有页面复用
 export class BarUtil {
-  static blue(): void {
+  // 原版App样式的自绘顶栏配套状态栏色。默认主题=品牌蓝(和 blue() 完全一致)，
+  // 豆泥主题=accent 深棕，和 ClassicHeader/TabTitleBar 的顶栏同色。
+  static topBar(theme: string): void {
     try {
+      // 装饰主题用各自 accent，默认主题保持品牌蓝（Palette.accent(default) 正好就是它）
+      const c: string = Palette.accent(theme);
       window.getLastWindow(getContext() as common.UIAbilityContext).then((win: window.Window) => {
-        win.setWindowSystemBarProperties({ statusBarColor: '#2D8CFA', statusBarContentColor: '#FFFFFF' });
+        win.setWindowSystemBarProperties({ statusBarColor: c, statusBarContentColor: '#FFFFFF' });
       });
     } catch (e) {
     }
   }
 
-  static white(): void {
-    try {
-      window.getLastWindow(getContext() as common.UIAbilityContext).then((win: window.Window) => {
-        win.setWindowSystemBarProperties({ statusBarColor: '#FFFFFF', statusBarContentColor: '#000000' });
-      });
-    } catch (e) {
-    }
-  }
-
-  // 页面/标题栏统一底色时使用，避免状态栏与标题栏出现割裂；
-  // 原生样式下底部导航条与悬浮 Tab 的材质底色对齐，消除小白条白底突兀感。
-  // 色值跟当前配色主题走（读 AppStorage，调用点一行都不用改）。
+  // 上下两段配色，两个色都取自小豆泥身上的采样色：
+  //   上段状态栏 = accent #9A7855（毛发灰棕提亮一档），白图标
+  //   下段导航条/网页/窗口底 = page #FAF4EC（奶油体色）
+  // 都是 Palette 里已有的 token，没有新增色值，也没改任何已有色值。
+  // 默认主题走原来的浅色状态栏 + barSoft 导航条，行为与豆泥主题出现前完全一致。
   static gray(): void {
     try {
       const theme: string | undefined = AppStorage.get<string>('dsh_theme');
       const t: string = theme === undefined ? '' : theme;
+      const def = themeDef(t);
       window.getLastWindow(getContext() as common.UIAbilityContext).then((win: window.Window) => {
         win.setWindowSystemBarProperties({
-          statusBarColor: Palette.bar(t),
-          statusBarContentColor: '#000000',
-          navigationBarColor: Palette.barSoft(t),
+          statusBarColor: def.titleOnAccent ? Palette.accent(t) : Palette.bar(t),
+          statusBarContentColor: def.statusBarLight ? '#FFFFFF' : '#000000',
+          navigationBarColor: def.titleOnAccent ? Palette.page(t) : Palette.barSoft(t),
           navigationBarContentColor: '#000000'
         });
       });
@@ -55,10 +55,6 @@ export class Router {
   /** 最近一次压栈的地址与时间：用来挡住「同一个地址被连续压两次」 */
   private static lastUrl: string = '';
   private static lastTs: number = 0;
-  /** 最近一次子页返回的时间：返回瞬间网页常会自己再跳一次，这段时间内不收开子页请求 */
-  private static lastPopTs: number = 0;
-  /** 返回后的静默期：足够盖住「焦点复原 → H5 自动跳转」这一次，又不影响正常点击 */
-  private static readonly POP_QUIET_MS: number = 700;
   /** 子页最多叠这么多层，超过就不再压栈 */
   private static readonly MAX_DEPTH: number = 6;
 
@@ -84,13 +80,6 @@ export class Router {
       hilog.warn(0x0001, 'Router', 'openSub ignored (repeat) %{public}s', target);
       return;
     }
-    // 刚从一个子页退回来：这时候网页往往会把焦点还给上次点过的输入框，
-    // H5 的 onfocus 里有跳转逻辑就会立刻再开一次 —— 用户看到的就是「退出又进来」。
-    // 返回后给它一个很短的不应期，把这一下挡住；正常点击基本不会落在 0.7 秒内。
-    if (now - Router.lastPopTs < Router.POP_QUIET_MS) {
-      hilog.warn(0x0001, 'Router', 'openSub ignored (just popped) %{public}s', target);
-      return;
-    }
     // 防深：真出现「A 打开 B、B 又打开 A」这种交替循环时，按时间戳挡不住，按层数总能挡住
     if (Router.stack.size() >= Router.MAX_DEPTH) {
       hilog.warn(0x0001, 'Router', 'openSub blocked (depth %{public}d)', Router.stack.size());
@@ -113,47 +102,60 @@ export class Router {
       // 带 result 弹出，确保 push 时注册的 onPop 回调会执行（协议页返回后恢复隐私弹层）
       Router.stack.pop('', true);
     }
-    Router.lastPopTs = Date.now();
-    Router.blurUnderlying();
+    Router.releaseInput();
   }
 
   /**
-   * 清掉底下那层网页里的焦点。
+   * 释放网页输入框的输入会话和焦点。
    *
-   * 首页搜索框是个输入框：点它 → 拿到焦点 → H5 的 onfocus 里跳到搜索页 → 我们开子页。
-   * 子页退出后 ArkWeb 会把焦点还给那个输入框，H5 的 onfocus 于是又跳一次 ——
-   * 用户看到的就是「退出又进来」反复横跳。0.2.27 靠「同一地址 5 秒内不重复开」压过，
-   * 但真人进搜索页输字看结果再退出，早就超过 5 秒，闸门等于不存在。
-   *
-   * 这里在返回时直接把 input/textarea 的焦点摘掉，从源头断掉这次自动跳转。
-   * 分几个时间点补几次：焦点是页面重新可见时由内核恢复的，晚了就漏。
+   * 搜索页 H5 的输入框会自动聚焦。焦点留在 input 上时，返回键会被 Web 组件当成
+   * 「编辑中的返回」消费掉，NavDestination 弹栈收不到，用户就卡在搜索页退不出来。
+   * 子页隐藏时（onHidden）调这里，结束输入会话 + 把焦点挪到不可见的非输入节点，
+   * 让返回键重新落到导航上。只做焦点收尾，不拦任何跳转。
    */
-  private static blurUnderlying(): void {
+  static releaseInput(): void {
+    try {
+      inputMethod.getController().stopInputSession();
+    } catch (e) {
+    }
     const c: webview.WebviewController | undefined = WebRegistry.activeController();
     if (c === undefined) {
       return;
     }
     const js: string =
       '(function(){try{var a=document.activeElement;' +
-      'if(a&&(a.tagName==="INPUT"||a.tagName==="TEXTAREA"||a.isContentEditable===true)){a.blur();return "blur";}' +
-      'return "none";}catch(e){return "err";}})()';
-    try {
-      c.runJavaScript(js);
-    } catch (e) {
+      'if(a&&(a.blur)){a.blur();}' +
+      'var list=document.querySelectorAll("input,textarea,[contenteditable=true]");' +
+      'for(var i=0;i<list.length;i++){try{list[i].blur();}catch(e){}}' +
+      'var sink=document.getElementById("__dsh_focus_sink");' +
+      'if(!sink&&document.body){sink=document.createElement("button");' +
+      'sink.id="__dsh_focus_sink";sink.setAttribute("tabindex","-1");' +
+      'sink.style.cssText="position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;opacity:0;border:0;padding:0;";' +
+      'document.body.appendChild(sink);}' +
+      'if(sink){try{sink.focus();}catch(e){}}' +
+      '}catch(e){}})()';
+    // 焦点可能在页面重新可见后才恢复，多补几次；用户再碰网页时由 onTouch 停掉
+    Router.releaseTimers.forEach((t: number) => clearTimeout(t));
+    Router.releaseTimers = [];
+    const run = (): void => {
+      try {
+        c.runJavaScript(js);
+      } catch (e) {
+      }
+    };
+    run();
+    const times: number[] = [120, 400, 900, 1600];
+    for (let i = 0; i < times.length; i++) {
+      Router.releaseTimers.push(setTimeout(run, times[i]));
     }
-    // 焦点是页面重新可见之后由内核恢复的，可能比 pop 动画晚一点，所以补两次
-    setTimeout(() => {
-      try {
-        c.runJavaScript(js);
-      } catch (e) {
-      }
-    }, 150);
-    setTimeout(() => {
-      try {
-        c.runJavaScript(js);
-      } catch (e) {
-      }
-    }, 450);
+  }
+
+  private static releaseTimers: number[] = [];
+
+  /** 用户又碰网页：停止焦点补扫，别抢走正在输入的输入框 */
+  static stopRelease(): void {
+    Router.releaseTimers.forEach((t: number) => clearTimeout(t));
+    Router.releaseTimers = [];
   }
 
   // 交给系统浏览器处理（如 .apk 直链），失败时回落应用内打开

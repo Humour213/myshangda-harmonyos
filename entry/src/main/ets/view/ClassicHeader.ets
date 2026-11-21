@@ -3,15 +3,25 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-// 原版 App 样式的子页/设置页蓝色工具栏：返回 | 标题 | (关闭)
+import { Palette } from '../common/Palette';
+import { BarUtil } from '../common/Nav';
+
+// 原版 App 样式的子页/设置页工具栏：返回 | 标题 | (关闭)
 // 与 TabTitleBar 同构：真全屏下自避让状态栏
 @Component
 export struct ClassicHeader {
   @Prop title: string = '';
   @Prop showClose: boolean = false;
   @StorageLink('dsh_statusBar') statusBarHeight: number = 36;
+  @StorageProp('dsh_theme') theme: string = 'default';
   onBack: () => void = () => {};
   onClose: () => void = () => {};
+
+  // 这个顶栏一出现就把状态栏染成和它同色，这样从任何入口进来（含冷启动/通知拉起）
+  // 都不会出现"深棕顶栏 + 蓝状态栏"的错配。默认主题下设的还是品牌蓝，观感零改动。
+  aboutToAppear(): void {
+    BarUtil.topBar(this.theme);
+  }
 
   build() {
     Row() {
@@ -50,6 +60,8 @@ export struct ClassicHeader {
     .width('100%')
     .height(this.statusBarHeight + 52)
     .padding({ top: this.statusBarHeight })
-    .backgroundColor('#2D8CFA')
+    // 默认主题 accent=品牌蓝，和原来写死的 #2D8CFA 一模一样，观感零改动；
+    // 豆泥主题 accent=毛发深棕，配合状态栏/网页构成上下两段。
+    .backgroundColor(Palette.accent(this.theme))
   }
 }

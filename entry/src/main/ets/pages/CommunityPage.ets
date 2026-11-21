@@ -4,6 +4,7 @@
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
 import { Palette } from '../common/Palette';
+import { themeDef } from '../common/ThemeConfig';
 import { HdsNavDestination, hdsMaterial } from '@kit.UIDesignKit';
 import { promptAction } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -276,7 +277,13 @@ export struct CommunityPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥：和状态栏同为 accent 棕，上下连成一片；默认主题沿用 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
+          },
+          contentStyle: {
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') }
           }
         },
         systemMaterialEffect: {

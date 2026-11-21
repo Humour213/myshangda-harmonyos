@@ -4,7 +4,8 @@
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
 import { Palette } from '../common/Palette';
-import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE, THEME_DEFAULT, THEME_DOUNI } from '../common/PrefsStore';
+import { PrefsStore, NAV_STYLE_CLASSIC, NAV_STYLE_NATIVE } from '../common/PrefsStore';
+import { allThemes, ThemeDef, themeDef } from '../common/ThemeConfig';
 import { webview } from '@kit.ArkWeb';
 import { promptAction } from '@kit.ArkUI';
 import { notificationManager } from '@kit.NotificationKit';
@@ -345,7 +346,13 @@ export struct SettingsPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥：和状态栏同为 accent 棕，上下连成一片；默认主题沿用 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
+          },
+          contentStyle: {
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') }
           }
         },
         systemMaterialEffect: {
@@ -478,26 +485,25 @@ export struct SettingSubPage {
    * 不需要重建页面，也不会动到 HDS 材质。
    */
   @Builder
-  themeRow(label: string, sub: string, value: string) {
+  themeRow(item: ThemeDef) {
     Row() {
-      if (value === THEME_DOUNI) {
-        Image($r('app.media.douni_passive_01'))
-          .width(38)
-          .height(38)
-          .objectFit(ImageFit.Contain)
-          .margin({ right: 10 })
-      }
+      // 缩略图由主题配置提供：默认主题用应用标志，装饰主题用各自的贴纸
+      Image(item.thumbnail)
+        .width(38)
+        .height(38)
+        .objectFit(ImageFit.Contain)
+        .margin({ right: 10 })
       Column({ space: 3 }) {
-        Text(label)
+        Text(item.label)
           .fontSize(16)
           .fontColor('#1A1A1A')
-        Text(sub)
+        Text(item.sub)
           .fontSize(12)
           .fontColor('#999999')
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
-      if (this.theme === value) {
+      if (this.theme === item.id) {
         Text('✓')
           .fontSize(18)
           .fontColor(Palette.accent(this.theme))
@@ -509,13 +515,21 @@ export struct SettingSubPage {
     .padding({ left: 16, right: 16 })
     .backgroundColor(Color.White)
     .onClick(() => {
-      if (this.theme !== value) {
-        AppStorage.setOrCreate('dsh_theme', value);
-        // 这里直接落盘，不像 nav_style 那样交给 Index 的 @Watch ——
-        // 主题只影响叠加层，没必要为了持久化再往 Index 挂一个监听。
+      if (this.theme !== item.id) {
+        AppStorage.setOrCreate('dsh_theme', item.id);
         const ctx = getContext(this) as common.UIAbilityContext;
-        PrefsStore.setTheme(ctx, value).catch(() => {
-        });
+        // 同步落盘：紧接着要刷新桌面卡片，卡片进程之后还会定时读盘拿主题，
+        // 异步 setTheme 的落盘窗口会让卡片读到旧值、切了又变回去。
+        PrefsStore.setThemeSync(ctx, item.id);
+        // 状态栏立刻换色，不等返回主页/再进二级页。
+        // 主题是窗口级属性，这里设一次整个应用（含当前设置页）都生效。
+        if (this.navStyle === NAV_STYLE_CLASSIC) {
+          BarUtil.topBar(item.id);
+        } else {
+          BarUtil.gray();
+        }
+        // 立刻通知桌面卡片换色（卡片独立进程，读不到 AppStorage，主动推 form 数据）。
+        CardSync.refreshAllForms(ctx, item.id);
       }
     })
   }
@@ -569,9 +583,13 @@ export struct SettingSubPage {
                 .fontColor('#999999')
                 .margin({ left: 16, top: 20, bottom: 8 })
               Column() {
-                this.themeRow('默认', '原生观感，不加任何装饰', THEME_DEFAULT)
-                this.divider()
-                this.themeRow('豆泥的一天', '原生光感之上，多一只陪着你的猫', THEME_DOUNI)
+                // 选项从主题注册表生成：以后加主题只要在 ThemeConfig 里加一条，这里自动多一行
+                ForEach(allThemes(), (item: ThemeDef, idx: number) => {
+                  if (idx > 0) {
+                    this.divider()
+                  }
+                  this.themeRow(item)
+                }, (item: ThemeDef) => item.id)
               }
               .width('100%')
               .backgroundColor(Color.White)
@@ -606,7 +624,13 @@ export struct SettingSubPage {
       style: {
         originalStyle: {
           backgroundStyle: {
-            backgroundColor: Palette.bar(this.theme)
+            // 豆泥：和状态栏同为 accent 棕，上下连成一片；默认主题沿用 Palette.bar，观感不变。
+            backgroundColor: themeDef(this.theme).titleOnAccent
+              ? Palette.accent(this.theme) : Palette.bar(this.theme)
+          },
+          contentStyle: {
+            titleStyle: { mainTitleColor: themeDef(this.theme).titleOnAccent
+              ? '#FFFFFF' : $r('sys.color.font_primary') }
           }
         },
         systemMaterialEffect: {

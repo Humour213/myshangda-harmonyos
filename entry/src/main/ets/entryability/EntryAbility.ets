@@ -44,8 +44,9 @@ export default class EntryAbility extends UIAbility {
     // 外观偏好必须在 loadContent 之前同步灌进 AppStorage。
     // @StorageProp 只在组件构造那一刻取一次值，键不存在就永远停在默认值上，
     // 界面之后再怎么 setOrCreate 都救不回来 —— 主题曾经整片不生效就是这个原因。
-    AppStorage.setOrCreate('dsh_theme', PrefsStore.getThemeSync(this.context));
-    AppStorage.setOrCreate('dsh_nav_style', PrefsStore.getNavStyleSync(this.context));
+    const boot = PrefsStore.getBootPrefsSync(this.context);
+    AppStorage.setOrCreate('dsh_theme', boot.theme);
+    AppStorage.setOrCreate('dsh_nav_style', boot.navStyle);
     // 豆泥的轮换种子：冷启动换一次，运行期间不变。
     // 时间戳 + 随机数，保证连着杀进程重开也不会撞到同一只。
     AppStorage.setOrCreate('dsh_launch_seed',

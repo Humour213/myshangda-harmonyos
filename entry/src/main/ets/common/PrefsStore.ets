@@ -8,6 +8,7 @@ import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { CredVault } from './CredVault';
 import { CredStore, CredPair } from './CredStore';
+import { THEME_DEFAULT as DEF_ID, isKnownTheme } from './ThemeConfig';
 
 const PREF_NAME = 'dsh_prefs';
 const KEY_USER = 'login_user';
@@ -18,7 +19,7 @@ const KEY_PASS_ENC = 'login_pass_enc';
 const KEY_ONBOARDED = 'onboarded';
 const KEY_AGREED = 'statement_agreed_v1';
 const KEY_NAV_STYLE = 'nav_style';
-/** 配色主题（'default' | 'douni'）。与 nav_style 正交：布局样式和配色主题互不影响 */
+/** 配色主题（合法值见 ThemeConfig 的注册表）。与 nav_style 正交：布局样式和配色主题互不影响 */
 const KEY_THEME = 'theme';
 /** 上课提醒总开关 */
 const KEY_REMIND_ON = 'remind_on';
@@ -26,19 +27,47 @@ const KEY_REMIND_ON = 'remind_on';
 export const NAV_STYLE_NATIVE = 'native';
 export const NAV_STYLE_CLASSIC = 'classic';
 
-/** 默认主题：原生观感，不加任何装饰 */
-export const THEME_DEFAULT = 'default';
-/** 豆泥的一天：在原生光感之上叠加小豆泥浮层（只加不改） */
-export const THEME_DOUNI = 'douni';
+/** 默认主题 id（值来自 ThemeConfig 单一数据源，保留本文件导出名以兼容既有引用） */
+export const THEME_DEFAULT: string = DEF_ID;
 
 export class SavedLogin {
   user: string = '';
   pass: string = '';
 }
 
+/** 冷启动需要的两份外观偏好，一次同步打开 preferences 就读齐 */
+export interface BootPrefs {
+  theme: string;
+  navStyle: string;
+}
+
+/** 首页 aboutToAppear 需要的几项 UI 偏好，一次异步取回，避免多次 getStore */
+export interface UiPrefs {
+  agreed: boolean;
+  navStyle: string;
+  theme: string;
+  guideShown: boolean;
+}
+
 export class PrefsStore {
   static async getStore(ctx: common.UIAbilityContext): Promise<preferences.Preferences> {
     return preferences.getPreferences(ctx, { name: PREF_NAME });
+  }
+
+  /** 首页一次性取回隐私声明 / 外观 / 引导标记，减少重复 getStore 与 Promise 链 */
+  static async getUiPrefs(ctx: common.UIAbilityContext): Promise<UiPrefs> {
+    const p: UiPrefs = { agreed: false, navStyle: NAV_STYLE_NATIVE, theme: THEME_DEFAULT, guideShown: false };
+    try {
+      const store = await PrefsStore.getStore(ctx);
+      p.agreed = (await store.get(KEY_AGREED, false)) as boolean;
+      const n = (await store.get(KEY_NAV_STYLE, NAV_STYLE_NATIVE)) as string;
+      p.navStyle = n === NAV_STYLE_CLASSIC ? NAV_STYLE_CLASSIC : NAV_STYLE_NATIVE;
+      const t = (await store.get(KEY_THEME, THEME_DEFAULT)) as string;
+      p.theme = isKnownTheme(t) ? t : THEME_DEFAULT;
+      p.guideShown = (await store.get('guide_shown', false)) === true;
+    } catch (e) {
+    }
+    return p;
   }
 
   static async getLogin(ctx: common.UIAbilityContext): Promise<SavedLogin> {
@@ -260,10 +289,28 @@ export class PrefsStore {
     try {
       const store = await PrefsStore.getStore(ctx);
       const v = (await store.get(KEY_THEME, THEME_DEFAULT)) as string;
-      return v === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT;
+      return isKnownTheme(v) ? v : THEME_DEFAULT;
     } catch (e) {
       return THEME_DEFAULT;
     }
+  }
+
+  /**
+   * 冷启动一次读齐主题 + 导航样式。
+   * 原来 getThemeSync / getNavStyleSync 各自 getPreferencesSync 一次，
+   * 同一个 dsh_prefs 文件被同步打开两遍；这里合并成一遍，取值与兜底规则完全一致。
+   */
+  static getBootPrefsSync(ctx: common.Context): BootPrefs {
+    const boot: BootPrefs = { theme: THEME_DEFAULT, navStyle: NAV_STYLE_NATIVE };
+    try {
+      const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
+      const t = store.getSync(KEY_THEME, THEME_DEFAULT) as string;
+      const n = store.getSync(KEY_NAV_STYLE, NAV_STYLE_NATIVE) as string;
+      boot.theme = isKnownTheme(t) ? t : THEME_DEFAULT;
+      boot.navStyle = n === NAV_STYLE_CLASSIC ? NAV_STYLE_CLASSIC : NAV_STYLE_NATIVE;
+    } catch (e) {
+    }
+    return boot;
   }
 
   /**
@@ -282,28 +329,31 @@ export class PrefsStore {
     try {
       const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
       const v = store.getSync(KEY_THEME, THEME_DEFAULT) as string;
-      return v === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT;
+      return isKnownTheme(v) ? v : THEME_DEFAULT;
     } catch (e) {
       return THEME_DEFAULT;
-    }
-  }
-
-  /** 同步读导航样式，理由同 getThemeSync（防止冷启动先闪一帧默认样式） */
-  static getNavStyleSync(ctx: common.Context): string {
-    try {
-      const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
-      const v = store.getSync(KEY_NAV_STYLE, NAV_STYLE_NATIVE) as string;
-      return v === NAV_STYLE_CLASSIC ? NAV_STYLE_CLASSIC : NAV_STYLE_NATIVE;
-    } catch (e) {
-      return NAV_STYLE_NATIVE;
     }
   }
 
   static async setTheme(ctx: common.UIAbilityContext, theme: string): Promise<void> {
     try {
       const store = await PrefsStore.getStore(ctx);
-      await store.put(KEY_THEME, theme === THEME_DOUNI ? THEME_DOUNI : THEME_DEFAULT);
+      await store.put(KEY_THEME, isKnownTheme(theme) ? theme : THEME_DEFAULT);
       await store.flush();
+    } catch (e) {
+    }
+  }
+
+  /**
+   * 同步落盘配色主题。设置页切主题时用这个：紧接着要刷新桌面卡片，
+   * 卡片进程之后定时读盘也会拿主题 —— 异步 setTheme 有落盘窗口，
+   * 期间读盘拿到旧值会让卡片"切了又变回去"。同步写没有这个窗口。
+   */
+  static setThemeSync(ctx: common.Context, theme: string): void {
+    try {
+      const store = preferences.getPreferencesSync(ctx, { name: PREF_NAME });
+      store.putSync(KEY_THEME, isKnownTheme(theme) ? theme : THEME_DEFAULT);
+      store.flushSync();
     } catch (e) {
     }
   }

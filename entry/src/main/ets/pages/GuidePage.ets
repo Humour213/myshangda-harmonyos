@@ -3,7 +3,8 @@
  * 原始框架 © Courier — https://github.com/ZHOUcourier/myshangda-harmonyos
  * 本仓库改动 © Humour213 — https://github.com/Humour213/myshangda-harmonyos
  */
-import { PrefsStore, THEME_DOUNI } from '../common/PrefsStore';
+import { PrefsStore } from '../common/PrefsStore';
+import { themeDef } from '../common/ThemeConfig';
 import { Mascot } from '../common/Mascot';
 import { common } from '@kit.AbilityKit';
 import { LengthMetrics } from '@kit.ArkUI';
@@ -95,7 +96,7 @@ export struct GuidePage {
 
       // 引导页左下角蹲一只。位置按"避开居中的指示器与按钮"算：
       // 指示器宽约 70vp 居中，按钮居中，左下 14~98 这一段是空的。
-      if (this.theme === THEME_DOUNI) {
+      if (themeDef(this.theme).decorated) {
         Stack() {
           Mascot({ slot: 'passive', side: 84 })
         }
